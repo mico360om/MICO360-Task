@@ -10,6 +10,8 @@ function inMemory(): ColumnRepository {
   let seq = 0;
   return {
     async countLiveTasks(id) { return id === 'busy' ? 1 : 0; },
+    // s137: a column named "Full" holds 2 live tasks.
+    async countLiveTasksByColumn(projectId) { return new Map(rows.filter((c) => c.projectId === projectId && c.name === 'Full').map((c) => [c.id, 2])); },
     async listForProject(projectId) { return rows.filter((c) => c.projectId === projectId); },
     async create(data: CreateColumnData) {
       const c = { id: `c${seq++}`, projectId: data.projectId, name: data.name, category: data.category ?? 'TODO', position: data.position, color: data.color ?? '#948985', enabled: true } as ColumnRecord;
@@ -64,6 +66,21 @@ describe('Column routes', () => {
     const res = await app.inject({ method: 'GET', url: '/api/v1/projects/p1/columns', headers: { authorization: `Bearer ${await token(['EMPLOYEE'])}` } });
     expect(res.statusCode).toBe(200);
     expect(Array.isArray(res.json().data)).toBe(true);
+  });
+
+  // s137: Manage columns shows each column's task count — asked for with ?counts=1, given only to whoever may change the columns.
+  it('adds each column’s live task count with ?counts=1, for people who manage the project only', async () => {
+    const admin = { authorization: `Bearer ${await token(['ADMIN'])}` };
+    await app.inject({ method: 'POST', url: '/api/v1/projects/p1/columns', headers: admin, payload: { name: 'Full' } });
+    await app.inject({ method: 'POST', url: '/api/v1/projects/p1/columns', headers: admin, payload: { name: 'Empty' } });
+    const counted = await app.inject({ method: 'GET', url: '/api/v1/projects/p1/columns?counts=1', headers: admin });
+    expect(counted.statusCode).toBe(200);
+    expect(counted.json().data.map((c: { name: string; taskCount?: number }) => `${c.name}:${c.taskCount}`)).toEqual(['Full:2', 'Empty:0']);
+    const plain = await app.inject({ method: 'GET', url: '/api/v1/projects/p1/columns', headers: admin });
+    expect(plain.json().data.every((c: object) => !('taskCount' in c))).toBe(true);
+    const employee = await app.inject({ method: 'GET', url: '/api/v1/projects/p1/columns?counts=1', headers: { authorization: `Bearer ${await token(['EMPLOYEE'])}` } });
+    expect(employee.statusCode).toBe(200);
+    expect(employee.json().data.every((c: object) => !('taskCount' in c))).toBe(true);
   });
 
   it('lets an admin add a column (201)', async () => {

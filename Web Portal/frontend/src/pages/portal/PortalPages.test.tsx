@@ -1141,21 +1141,41 @@ describe('Learning Hub in the Client portal', () => {
     expect(calls).toEqual([]);
   });
 
-  it('/portal/training, the guide finished: “All done, well done”, Certificate ready with View and Download PDF — still no link out of the portal', async () => {
+  it('/portal/training, the guide finished (s137): the Course complete banner with View certificate and Download PDF — no Copy check link, still no link out of the portal', async () => {
     const cert = { id: 'cert5', code: 'TC-PORT-AL55-AAAA', courseId: 'pc1', courseTitle: 'Client portal basics', issuedAt: '2026-11-05T08:00:00.000Z', expiresAt: null, status: 'VALID' as const, completedAt: '2026-11-05T08:00:00.000Z', learnerName: 'Huda Client', verifyUrl: 'https://tasks.example.com/verify/TC-PORT-AL55-AAAA' };
     const done = courseCard({ id: 'pc1', title: 'Client portal basics', moduleKey: 'portal', audience: 'CLIENTS', mine: courseMine({ status: 'COMPLETED', progressPct: 100, lessonsDone: 4, dueDay: null, overdue: false, completedAt: '2026-11-05T08:00:00.000Z', certificate: cert }) });
     api.training.mockResolvedValue({ ...myTraining({ assigned: [], inProgress: [], completed: [done], certificates: [cert] }), catalogue: [done], tour: { show: false } });
     api.trainingCourse.mockResolvedValue(courseDetail({ id: 'pc1', title: 'Client portal basics', moduleKey: 'portal', audience: 'CLIENTS', mine: done.mine, lessons: courseDetail().lessons.map((l) => ({ ...l, done: true, locked: false })) }));
     renderAt('/portal/training');
-    expect(await screen.findByRole('region', { name: 'All done, well done' })).toBeInTheDocument();
-    const certificate = await screen.findByRole('region', { name: 'Certificate' });
-    expect(within(certificate).getByText('Certificate ready')).toBeInTheDocument();
-    expect(within(certificate).getByRole('link', { name: 'View the certificate' })).toHaveAttribute('href', '/portal/training/courses/pc1');
-    expect(within(certificate).getByRole('button', { name: 'Download PDF of the certificate' })).toBeInTheDocument();
+    const banner = await screen.findByRole('region', { name: 'Course complete' });
+    expect(within(banner).getByRole('button', { name: 'View certificate' })).toBeInTheDocument();
+    expect(within(banner).getByRole('button', { name: 'Download PDF' })).toBeInTheDocument();
+    expect(within(banner).queryByRole('button', { name: 'Copy check link' })).toBeNull();
     const main = screen.getByRole('main');
-    for (const a of within(main).getAllByRole('link')) expect(a.getAttribute('href'), a.textContent ?? '').toMatch(/^\/portal(\/|$)/);
+    for (const a of within(main).queryAllByRole('link', { hidden: true })) expect(a.getAttribute('href'), a.textContent ?? '').toMatch(/^\/portal(\/|$)/);
     expect(within(main).queryByText('Check it online')).toBeNull();
     expect(calls).toEqual([]);
+  });
+
+  it('1.23.34 /portal/training, nothing assigned: the client guide the server offers is Up next with Start (no Mandatory, no due day), not listed again below; Start opens its first lesson', async () => {
+    const fresh = courseMine({ enrolled: false, assigned: false, mandatory: false, status: 'NOT_STARTED', progressPct: 0, dueDay: null, lessonsDone: 0, lastLessonId: null, startedAt: null, nextLessonId: 'l1' });
+    const offered = courseCard({ id: 'pc1', title: 'Client portal basics', moduleKey: 'portal', audience: 'CLIENTS', mine: fresh });
+    const other = courseCard({ id: 'pc2', title: 'Sign-off basics', moduleKey: 'portal', audience: 'CLIENTS', mine: fresh });
+    api.training.mockResolvedValue({ ...EMPTY_PORTAL_TRAINING, catalogue: [offered, other], suggested: offered });
+    api.trainingCourse.mockResolvedValue(courseDetail({ id: 'pc1', title: 'Client portal basics', moduleKey: 'portal', audience: 'CLIENTS', mine: fresh, resumeLessonId: 'l1', lessons: courseDetail().lessons.map((l) => ({ ...l, done: false, locked: false })) }));
+    api.trainingStart.mockResolvedValue(courseDetail({ id: 'pc1', resumeLessonId: 'l1' }));
+    renderAt('/portal/training');
+    const upNext = await screen.findByRole('region', { name: 'Up next' });
+    expect(screen.queryByText('Nothing to do right now')).toBeNull();
+    expect(within(upNext).getByRole('link', { name: 'Client portal basics' })).toHaveAttribute('href', '/portal/training/courses/pc1');
+    expect(within(upNext).queryByText('Mandatory')).toBeNull();
+    expect(within(upNext).queryByText(/^Due |Overdue/)).toBeNull();
+    expect(screen.getAllByRole('link', { name: 'Client portal basics' })).toHaveLength(1);
+    expect(within(screen.getByRole('region', { name: /^More courses \(1\)/ })).getByRole('link', { name: 'Sign-off basics' })).toBeInTheDocument();
+    expect(within(await screen.findByRole('region', { name: 'Certificate' })).getByText('Finish 4 more lessons to get it')).toBeInTheDocument();
+    await userEvent.click(within(upNext).getByRole('button', { name: 'Start' }));
+    await waitFor(() => expect(api.trainingStart).toHaveBeenCalledWith('pc1'));
+    await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/portal/training/courses/pc1/lessons/l1'));
   });
 
   it('/portal/training with nothing to do: one line, the courses below (filters only above 3 courses)', async () => {
@@ -1183,8 +1203,11 @@ describe('Learning Hub in the Client portal', () => {
     await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/portal/training/courses/pc1/lessons/l2'));
     expect(api.trainingStart).toHaveBeenCalledWith('pc1');
     expect(await screen.findByRole('heading', { level: 1, name: 'Make a task' })).toBeInTheDocument();
-    // One step: its one Next finishes the lesson and opens the next one.
-    await userEvent.click(screen.getByRole('button', { name: 'Next lesson' }));
+    // 1.23.36: the same lesson page as staff — the course's lessons beside it ("In this course").
+    const beside = await screen.findByRole('navigation', { name: 'In this course' });
+    expect(within(beside).getByRole('link', { name: 'Course page' })).toHaveAttribute('href', '/portal/training/courses/pc1');
+    // One step: its Next ("Next: <the next lesson>") finishes the lesson and opens the next one.
+    await userEvent.click(within(screen.getByRole('region', { name: 'Open a project' })).getByRole('button', { name: /^Next: / }));
     await waitFor(() => expect(api.trainingComplete).toHaveBeenCalledWith('l2'));
     await waitFor(() => expect(screen.getByTestId('where')).toHaveTextContent('/portal/training/courses/pc1/lessons/l3'));
     expect(calls).toEqual([]);

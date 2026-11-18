@@ -14,6 +14,49 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.23.38] - 2026-11-18
+
+### Bug fixes
+- My Tasks has one New Task button (the top bar's); a task added from the top bar shows straight away on the page you're on.
+
+
+## [1.23.37] - 2026-11-18
+
+### Improvements
+- Learning Hub: a finished course shows your certificate and score on My learning, with the modules folded away.
+- One "New task" button: the Kanban board and a project's Tasks tab no longer have their own — the New Task button at the top starts in the project you are looking at, and N still opens it. A column's + still adds straight into that column.
+- Calendar: the toolbar's add button says the day it adds on ("Add on 16 Nov").
+- Board "Manage columns" is a tidy table (Name, Status, Tasks, Visible, order, Delete) that no longer stretches across wide screens. It shows how many tasks each column holds; Delete waits, and says why, while a column still has tasks ("Move its 3 tasks first") or is the project's only one. A new column's status is chosen as you add it. On a phone each column is a small card.
+- "Describe it in plain English" (New task): choose how much the assistant writes — Short, Default or Detailed. Short gives a title of a few words and a one-sentence description; Detailed gives a fuller description with a short "What to do" list. Default is chosen each time the form opens; you still tick the details you want and press "Use selected details".
+
+## [1.23.36] - 2026-11-17
+
+### Improvements
+- Learning Hub lessons: a list of the module's lessons beside each lesson (ticks for those done, one click to any of them), a bigger video, and a clear Next button that names the next lesson ("Next: Quiz: Getting started", "Next module: Tasks"). On a phone, "Lessons in this module" opens the same list, and Back and Next stay at the bottom of the screen. The same in the Client portal.
+- Learning Hub lessons: one line and one progress bar under the title; a video says "Watch to the end to finish this lesson"; a step-by-step guide shows a dot for each step (press one to go there).
+- Learning Hub quizzes: the start page says how many questions, the pass mark, the tries, the time and what the quiz covers; the result shows the wrong answers first, with the right ones folded under "Show the ones you got right", and no message left over from the lesson before. The score ring no longer has a stray mark on it.
+
+## [1.23.35] - 2026-11-15
+
+### Improvements
+- Learning Hub certificates have a new design: landscape, your name in script, the QR code in a laurel wreath.
+
+## [1.23.34] - 2026-11-14
+
+### Improvements
+- Learning Hub: everyone who hasn't finished MICO360 Tasks User Training sees it as Up next, ready to start.
+- Learning Hub (Manage): each lesson has an Edit button, and a video without its link shows “Add the link”.
+
+## [1.23.33] - 2026-11-14
+
+### Bug fixes
+- Learning Hub course: the pictures were retaken on the current version, with sample names only (no real company names), and their descriptions match them.
+- Learning Hub course: lessons and quiz answers now match the site — “Assigned” in a task's details, the Projects “All” tab, the Calendar's bars, drag and Show button, your password under Your profile, System Settings' cards (Companies, Error log) and the Training manager switch.
+- Learning Hub (administrators and Training managers): Manage → Courses no longer lists archived courses among the current ones (such as the old short courses); “Show the archived courses” or Status → Archived lists them.
+- Learning Hub: a long lesson or course name runs onto a second line on a phone instead of being cut off with “…”.
+- Check a certificate (/verify): the code box and the Sign in link are full size on a phone, easy to tap.
+- Learning Hub reports (Excel and PDF): the Quizzes part says its results count the day each quiz was handed in, as the page does.
+
 ## [1.23.32] - 2026-11-14
 
 ### Improvements

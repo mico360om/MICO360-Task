@@ -15,6 +15,11 @@ export interface PageHeaderProps {
    * only when there is one for this person.
    */
   learn?: TrainingModule;
+  /**
+   * 1.23.33: the title is the page's content (a lesson's or a course's name), so it runs onto more lines when long
+   * instead of being cut with "…" (a list page's own title stays on one line).
+   */
+  wrap?: boolean;
 }
 
 /**
@@ -23,7 +28,7 @@ export interface PageHeaderProps {
  * (an auto column, which gets its full width before any fr column) only once the description is gone.
  * As flex items they shrank together, and Reports at 1280px read "Re…" beside a description.
  */
-export function PageTitle({ title, subtitle, eyebrow, learn, className = '' }: Omit<PageHeaderProps, 'actions'> & { className?: string }) {
+export function PageTitle({ title, subtitle, eyebrow, learn, wrap = false, className = '' }: Omit<PageHeaderProps, 'actions'> & { className?: string }) {
   // The Learn link has its own column after the title (empty, 0 wide, while it is hidden).
   const columns = eyebrow
     ? learn
@@ -40,7 +45,7 @@ export function PageTitle({ title, subtitle, eyebrow, learn, className = '' }: O
           <span aria-hidden="true" className="flex-none text-ink-3">/</span>
         </>
       ) : null}
-      <h1 className="min-w-0 truncate font-display text-xl font-extrabold tracking-tightish text-ink sm:text-2xl">{title}</h1>
+      <h1 className={`min-w-0 ${wrap ? 'break-words [overflow-wrap:anywhere]' : 'truncate'} font-display text-xl font-extrabold tracking-tightish text-ink sm:text-2xl`}>{title}</h1>
       {learn ? (
         <span data-learn-slot className="flex-none self-center">
           <LearnLink module={learn} />
@@ -62,12 +67,12 @@ export function PageTitle({ title, subtitle, eyebrow, learn, className = '' }: O
  * The row is at least a button tall (40px; 44px on a touch screen), with or without actions: the
  * title sits at the same height on every page instead of moving a few pixels from page to page.
  */
-export function PageHeader({ title, subtitle, eyebrow, actions, learn }: PageHeaderProps) {
+export function PageHeader({ title, subtitle, eyebrow, actions, learn, wrap }: PageHeaderProps) {
   return (
     // Release B: items-start + a title line a button tall with its words centred — when the actions wrap (the Learn link
     // takes room), the title stays on their first line instead of floating between the two rows.
     <div data-page-header className="relative z-20 mb-4 flex min-h-10 flex-wrap items-start justify-between gap-x-4 gap-y-2 animate-fade-in-up [@media(pointer:coarse)]:min-h-11">
-      <PageTitle title={title} subtitle={subtitle} eyebrow={eyebrow} learn={learn} className="min-h-10 flex-[1_1_auto] content-center [@media(pointer:coarse)]:min-h-11" />
+      <PageTitle title={title} subtitle={subtitle} eyebrow={eyebrow} learn={learn} wrap={wrap} className="min-h-10 flex-[1_1_auto] content-center [@media(pointer:coarse)]:min-h-11" />
       {actions ? <div data-page-actions className="flex min-h-10 max-w-full flex-wrap items-center gap-2 [@media(pointer:coarse)]:min-h-11">{actions}</div> : null}
     </div>
   );

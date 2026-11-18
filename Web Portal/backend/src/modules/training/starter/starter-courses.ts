@@ -15,11 +15,18 @@ import type { StarterCourse, StarterLesson, StarterModule, StarterQuestion } fro
  * lesson's earlier titles are kept in `was`. No downloads: the old how-to slide PDFs are gone (1.23.25).
  */
 
-/** Raised whenever this content changes, so sites update the starter courses nobody edited (R1). */
-export const STARTER_REVISION = 3;
+/**
+ * Raised whenever this content changes, so sites update the starter courses nobody edited (R1). 4 (1.23.33): the
+ * pictures retaken with sample names only, and the words checked against the site of 1.23.32.
+ * 5 (1.23.36): pictures for the steps that had none (where a real screen exists).
+ */
+export const STARTER_REVISION = 5;
 
 /** 1.23.30: the one staff course, "MICO360 Tasks User Training" (its starter key). */
 export const USER_TRAINING_KEY = 'starter:user-training';
+
+/** The client guide, "Client portal basics" (its starter key; 1.23.34 offers it as the portal's Up next). */
+export const CLIENT_GUIDE_KEY = 'starter:portal';
 
 /** The starter keys 1.23.24 loaded (revision 1): a site that ran it has them, or an administrator deleted them. */
 export const LEGACY_STARTER_KEYS: readonly string[] = [
@@ -116,17 +123,19 @@ const gettingStarted: StarterLesson[] = [
         title: 'Notifications',
         body: '<p>The bell at the top shows new notices: tasks given to you, mentions, reminders and answers. Click one to open what it is about.</p>',
         image: 'start-notifications.webp',
-        alt: 'The notifications list open under the bell, with a task given to you and a mention.',
+        alt: 'The notifications list open under the bell, with a new comment on your task and tasks given to you.',
       },
       {
         title: 'Your settings',
-        body: '<p>Click your picture at the top right to open the account menu, then choose <strong>Settings</strong> to change your profile, password and notifications. Under <strong>Calendar &amp; dates</strong> you choose the day your week starts on and your time zone.</p>',
+        body: '<p>Click your picture at the top right to open the account menu. <strong>Your profile</strong> has your details and your password. <strong>Settings</strong> has your notifications and how the site looks; under <strong>Calendar &amp; dates</strong> you choose the day your week starts on and your time zone.</p>',
         image: 'start-settings.webp',
-        alt: 'The account menu open under the person’s picture, with Your profile, Settings, Keyboard shortcuts and Tour of the site.',
+        alt: 'The account menu open under the person’s picture, with Your profile, Settings, Keyboard shortcuts, Tour of the site, About and version history and Log out.',
       },
       {
         title: 'The Learning Hub',
-        body: '<p>The <strong>Learning Hub</strong> has one course, <strong>MICO360 Tasks User Training</strong>. You see the modules for your role, and <strong>Continue</strong> picks up where you stopped. Finish every module to get a certificate with a QR code to check it. <strong>Tour of the site</strong>, in the account menu, shows you around again.</p>',
+        body: '<p>The <strong>Learning Hub</strong> has <strong>MICO360 Tasks User Training</strong> and any other courses your company adds. You see the modules for your role; <strong>Continue</strong> picks up where you stopped. Finish them all for a certificate with a QR code. <strong>Tour of the site</strong>, in the account menu, shows you around again.</p>',
+        image: 'start-learning-hub.webp',
+        alt: 'My learning in the Learning Hub: Up next with the Continue button, your modules with what is done, how many modules are done and what is left for the certificate.',
       },
     ],
   },
@@ -197,16 +206,18 @@ const tasks: StarterLesson[] = [
       {
         title: 'Filter and sort the list',
         body: '<p>Use the boxes under the chips to show one project, a status, a priority, a person or a due date. <strong>Sort</strong> puts the list in order, for example by due date.</p><p>The small buttons on the right switch between the grid, list and table views.</p>',
+        image: 'tasks-filters.webp',
+        alt: 'My Tasks with the Sort list open (Due date, Priority, Progress, Title), beside the boxes for project, status, priority, person and due date and the grid, list and table buttons.',
       },
       {
         title: 'Start a new task',
-        body: '<p>Click <strong>New Task</strong> at the top of any page (or press <strong>N</strong>). The <strong>New task</strong> window opens.</p>',
+        body: '<p>Click <strong>New Task</strong> at the top of any page (or press <strong>N</strong> on most pages). The <strong>New task</strong> window opens.</p>',
         image: 'tasks-new-task.webp',
         alt: 'The New task window with the Project, Column and Task title fields on the left, and Priority, Due date, Repeat and Assignees on the right.',
       },
       {
         title: 'Fill in the details',
-        body: '<p>Pick the <strong>Project</strong> and type a <strong>Task title</strong> — the only thing you must fill in. Add a <strong>Due date</strong>, a <strong>Priority</strong> and the <strong>Assignees</strong> if you like.</p>',
+        body: '<p>The <strong>Project</strong> and its <strong>Column</strong> are filled in for you (change them if you like). Type a <strong>Task title</strong> — the only thing you must type. Add a <strong>Due date</strong>, a <strong>Priority</strong> and the <strong>Assignees</strong> if you like.</p>',
       },
       {
         title: 'Save it',
@@ -228,13 +239,15 @@ const tasks: StarterLesson[] = [
       },
       {
         title: 'Change the status, priority or date',
-        body: '<p>In <strong>Details</strong>, pick a new <strong>Status</strong> as the work moves on — for example from To Do to In Progress. You can also change the <strong>Priority</strong>, the <strong>Due date</strong>, the <strong>Repeat</strong> and the people under <strong>Assignees</strong>.</p>',
+        body: '<p>In <strong>Details</strong>, pick a new <strong>Status</strong> as the work moves on — for example from To Do to In Progress. You can also change the <strong>Priority</strong>, the <strong>Due date</strong>, the <strong>Repeat</strong> and the people under <strong>Assigned</strong>.</p>',
         image: 'tasks-details.webp',
         alt: 'The Details box of a task: Status To Do, Priority High, a due date, Repeat “Does not repeat” and two assignees.',
       },
       {
         title: 'Tick off checklist steps',
         body: '<p>Under <strong>Checklists</strong>, tick each step when it is done. The task’s progress follows the steps you tick.</p>',
+        image: 'tasks-checklist.webp',
+        alt: 'A task’s Checklists: the first of three steps ticked and crossed out, “1/3 completed” and the progress bar, with Add an item and Add checklist below.',
       },
       {
         title: 'Write a comment',
@@ -260,21 +273,21 @@ const tasks: StarterLesson[] = [
       'My Tasks, in the side menu, shows everything assigned to you.',
     ),
     single(
-      'When you add a task, what must you fill in?',
+      'When you add a task, what must you type in?',
       [
-        right('Only the task title', 'Yes — everything else is optional.'),
+        right('Only the task title', 'Yes — the project and column are filled in for you; everything else is optional.'),
         wrong('The due date', 'A due date is optional.'),
         wrong('The assignees', 'People are optional; you can add them later.'),
         wrong('The description', 'A description is optional.'),
       ],
-      'Only the Task title is required. Everything else — description, due date, priority, people — is optional.',
+      'Only the Task title must be typed. The project and column are filled in for you; the description, due date, priority and people are optional.',
     ),
     single(
       'What can you do in a task’s details panel?',
       [
         right('Change its status, tick checklist steps and write a comment', 'Yes — all three are in the panel.'),
         wrong('Only read it', 'You can change it there too: its status, checklists and comments.'),
-        wrong('Change your own password', 'Your password is changed in Settings, not in a task.'),
+        wrong('Change your own password', 'Your password is changed in Your profile, not in a task.'),
         wrong('Start a new project', 'Projects are started on the Projects page.'),
       ],
       'The details panel holds the status, checklists and comments of the task.',
@@ -287,7 +300,7 @@ const tasks: StarterLesson[] = [
         wrong('Send a chat message', 'Chat doesn’t make tasks.'),
         wrong('Open the Calendar first', 'You can, but New Task works on every page.'),
       ],
-      'New Task is at the top of every page; N opens it too.',
+      'New Task is at the top of every page; N opens it on most pages too.',
     ),
     single(
       'How do you mention a colleague in a comment?',
@@ -324,7 +337,9 @@ const board: StarterLesson[] = [
       },
       {
         title: 'Read a card',
-        body: '<p>A card shows the task number, title, priority, due date, checklist and comment counts, progress and the people on it. A red date means the task is overdue. Click a card to open the task.</p>',
+        body: '<p>A card shows the task number, title, priority, due date, checklist and comment counts, progress and the people on it. A red <strong>Overdue</strong> badge means the task is late. Click a card to open the task.</p>',
+        image: 'board-card.webp',
+        alt: 'One card on the board: the task number MICO-13, High priority, its title, the due date, 1 of 3 checklist steps, one comment, its progress and the two people on it.',
       },
       {
         title: 'See the whole month',
@@ -358,6 +373,8 @@ const board: StarterLesson[] = [
       {
         title: 'Add a task to a column',
         body: '<p>Click <strong>+</strong> at the top of a column to add a task straight into it.</p>',
+        image: 'board-add.webp',
+        alt: 'The New task window opened from + on the To Do column: the project is MICO360 Platform and the Column is already To Do; a task title is typed.',
       },
       {
         title: 'Change the columns',
@@ -401,7 +418,7 @@ const board: StarterLesson[] = [
     single(
       'Which of these does a card show?',
       [
-        right('The due date, the priority and the people on the task', 'Yes — a red date means the task is overdue.'),
+        right('The due date, the priority and the people on the task', 'Yes — a red Overdue badge means it is late.'),
         wrong('The project’s budget', 'Cards don’t show money.'),
         wrong('Every comment in full', 'A card counts the comments; open the task to read them.'),
         wrong('Only the task’s title', 'A card shows much more: number, priority, due date, counts, progress and people.'),
@@ -446,6 +463,8 @@ const meetings: StarterLesson[] = [
       {
         title: 'Add people and an agenda',
         body: '<p>Under <strong>People</strong>, add team members, or a guest by email. Under <strong>Agenda</strong>, add the topics. <strong>Free times</strong> suggests times that suit everyone. Then click <strong>Schedule meeting</strong>.</p>',
+        image: 'meetings-people.webp',
+        alt: 'The People and Agenda parts of the Schedule a meeting window: two team members added, the boxes for a guest, and two agenda topics, with Add item and Draft agenda.',
       },
       {
         title: 'Send the invitations',
@@ -476,6 +495,8 @@ const meetings: StarterLesson[] = [
       {
         title: 'End the meeting',
         body: '<p>Click <strong>End meeting</strong> when you finish. A meeting whose end time has passed is completed by itself.</p>',
+        image: 'meetings-end.webp',
+        alt: 'The top of a meeting going on now: In progress and Live, the date, time and place, and the End meeting button on the right.',
       },
       {
         title: 'Write the final minutes',
@@ -492,6 +513,8 @@ const meetings: StarterLesson[] = [
       {
         title: 'Follow up',
         body: '<p>A task made in the meeting shows <strong>From meeting</strong> in its details. When the task is done, its action item closes too.</p>',
+        image: 'meetings-follow-up.webp',
+        alt: 'The top of a task’s details panel with the link “From meeting: Weekly project sync”: the task was made in that meeting.',
       },
     ],
   },
@@ -524,12 +547,12 @@ const meetings: StarterLesson[] = [
     single(
       'How do the final minutes reach people?',
       [
-        right('One email, with the minutes attached as a PDF', 'Yes — everyone on To and Cc gets the same email.'),
+        right('One email, with the minutes attached as a PDF', 'Yes — everyone on To and Cc gets the minutes as a PDF.'),
         wrong('A chat message in the project channel', 'The minutes are emailed, with a PDF.'),
         wrong('One email for each section of the minutes', 'Everyone gets one email with one PDF.'),
         wrong('They don’t: people read them on the meeting’s page only', 'Email minutes… sends them to the people you choose.'),
       ],
-      'Everyone on the To and Cc lists gets the same email, with the PDF attached.',
+      'Everyone on the To and Cc lists gets an email with the minutes attached as a PDF.',
     ),
     single(
       'What does “Make it a task” do on an Action Item note?',
@@ -555,7 +578,7 @@ const calendar: StarterLesson[] = [
     steps: [
       {
         title: 'Open the calendar',
-        body: '<p>Click <strong>Calendar</strong> in the side menu. Tasks show on their due date and meetings at their start time. Switch between <strong>Month</strong>, <strong>Week</strong>, <strong>Day</strong> and <strong>Agenda</strong> at the top; <strong>Today</strong> takes you back to today.</p>',
+        body: '<p>Click <strong>Calendar</strong> in the side menu. A task shows on its due date, or as a bar from its start to its due date (⚑) when it has a start date. Meetings show at their start time. Switch between <strong>Month</strong>, <strong>Week</strong>, <strong>Day</strong> and <strong>Agenda</strong>; <strong>Today</strong> goes back to today.</p>',
         image: 'calendar-month.webp',
         alt: 'The Calendar in Month view: tasks and meetings on their days, with the Month, Week, Day and Agenda buttons and the filters at the top.',
       },
@@ -567,7 +590,7 @@ const calendar: StarterLesson[] = [
       },
       {
         title: 'Move a task to another day',
-        body: '<p>Drag a task to another day to change its due date. A message lets you <strong>Undo</strong> it. Finished tasks can’t be moved.</p>',
+        body: '<p>Drag a task to another day to move it: a bar moves its start and due dates together, and dragging its ⚑ changes only the due date. A message lets you <strong>Undo</strong> it. Finished tasks can’t be moved.</p>',
       },
       {
         title: 'Add a task on a day',
@@ -577,9 +600,9 @@ const calendar: StarterLesson[] = [
       },
       {
         title: 'Choose what you see',
-        body: '<p>Use <strong>All projects</strong>, <strong>Everyone</strong> and <strong>My tasks</strong> to narrow the calendar. <strong>More filters</strong> picks statuses and priorities and shows or hides completed tasks and meetings. <strong>Legend</strong> explains the colours.</p>',
+        body: '<p>Use <strong>All projects</strong>, <strong>Everyone</strong> and <strong>My tasks</strong> to narrow the calendar. <strong>More filters</strong> picks statuses and priorities and shows or hides completed tasks. <strong>Show</strong> chooses whether tasks, meetings, planned time and your reminders appear. <strong>Legend</strong> explains the colours.</p>',
         image: 'calendar-filters.webp',
-        alt: 'The More filters panel with Status and Priority boxes, and Include options such as Show completed tasks and Show meetings.',
+        alt: 'The More filters panel with Status and Priority boxes, and Include options such as Show completed tasks and Show tasks of archived projects.',
       },
     ],
   },
@@ -587,22 +610,22 @@ const calendar: StarterLesson[] = [
     single(
       'On which day does a task show on the calendar?',
       [
-        right('On its due date', 'Yes — tasks sit on the day they are due.'),
+        right('On its due date', 'Yes — and a task with a start date is a bar from its start to its due date (⚑).'),
         wrong('On the day it was created', 'It shows on its due date.'),
         wrong('On the first day of the month', 'It shows on its due date.'),
         wrong('Only on today', 'Every task with a due date shows on that day.'),
       ],
-      'Tasks show on their due date; meetings show at their start time.',
+      'A task shows on its due date, or as a bar from its start to its due date when it has a start date; meetings show at their start time.',
     ),
     single(
       'What happens when you drag a task to another day?',
       [
-        right('Its due date changes to that day', 'Yes — and a message lets you Undo it.'),
+        right('Its dates move to that day', 'Yes — and a message lets you Undo it.'),
         wrong('A copy of the task is made on that day', 'Nothing is copied; the same task moves.'),
         wrong('The task is deleted', 'Dragging never deletes a task.'),
-        wrong('Nothing: the calendar is only for looking', 'Dragging a task gives it a new due date.'),
+        wrong('Nothing: the calendar is only for looking', 'Dragging a task moves its dates.'),
       ],
-      'Dragging a task to another day changes its due date; a message lets you Undo the move.',
+      'Dragging a task to another day moves its dates (a bar’s start and due together); a message lets you Undo the move.',
     ),
     single(
       'Which views does the calendar have?',
@@ -638,13 +661,15 @@ const projects: StarterLesson[] = [
     steps: [
       {
         title: 'Open Projects',
-        body: '<p>Click <strong>Projects</strong> in the side menu to see the projects you are part of. The tabs at the top show them by status: <strong>Active</strong>, <strong>Planning</strong>, <strong>On hold</strong>, <strong>Completed</strong> and <strong>Archived</strong>.</p>',
+        body: '<p>Click <strong>Projects</strong> in the side menu to see the projects you are part of. The tabs at the top show them by status: <strong>All</strong>, <strong>Active</strong>, <strong>Planning</strong>, <strong>On hold</strong>, <strong>Completed</strong> and <strong>Archived</strong>. <strong>All</strong> shows every project except the archived ones.</p>',
         image: 'projects-list.webp',
-        alt: 'The Projects page with status tabs, a search box and four project cards showing progress, open and overdue tasks, the next due date and the manager.',
+        alt: 'The Projects page with status tabs, a search box and three project cards showing progress, open and overdue tasks, the next due date and the manager.',
       },
       {
         title: 'Read a project card',
         body: '<p>Each card shows the progress, how many tasks are open and overdue, the next due date, the team and the target date. The word Green, Amber or Red is the project’s health — click it to see why.</p>',
+        image: 'projects-card.webp',
+        alt: 'One project card: Rig Inspection Portal, Active, health Red, its client, 9% done, 10 open, 4 overdue, next due Today, the team, the manager and the target date.',
       },
       {
         title: 'Open a project',
@@ -757,10 +782,14 @@ const reports: StarterLesson[] = [
       {
         title: 'Filter by project or person',
         body: '<p>Under <strong>Filter</strong>, pick a project in <strong>All projects</strong> or a person in <strong>All team</strong>. The tiles, charts and exports follow the filter. <strong>Clear</strong> shows everything again.</p>',
+        image: 'reports-filter.webp',
+        alt: 'Reports, under Filter: the All team list open with the people to choose from, beside All projects and Include archived.',
       },
       {
         title: 'Pick a period',
         body: '<p>Under <strong>Trends &amp; burndown</strong>, click <strong>7d</strong>, <strong>30d</strong> or <strong>90d</strong>, or type your own dates, to see how work was completed over that time.</p>',
+        image: 'reports-period.webp',
+        alt: 'Trends & burndown: the 7d, 30d and 90d buttons and the two date boxes, with the tasks completed, new tasks, velocity and overdue tasks for that time.',
       },
       {
         title: 'Compare projects',
@@ -777,6 +806,8 @@ const reports: StarterLesson[] = [
       {
         title: 'Export',
         body: '<p>At the top, choose what to export under <strong>Export</strong> — the full report or one section — and click <strong>Excel</strong>, <strong>PDF</strong> or <strong>CSV</strong>. CSV works for one section at a time.</p>',
+        image: 'reports-export.webp',
+        alt: 'The top of Reports with the Export list open (the full report or one section) beside the Excel, PDF and CSV buttons.',
       },
     ],
   },
@@ -868,6 +899,8 @@ const chat: StarterLesson[] = [
       {
         title: 'Edit, delete or mute',
         body: '<p>Under <strong>More actions</strong> (⋯) on your own message you can <strong>Edit</strong> or <strong>Delete</strong> it. The ⋯ next to a conversation lets you add it to favorites, mute its notifications or archive it.</p>',
+        image: 'chat-actions.webp',
+        alt: 'A chat channel with More actions (⋯) open on your own message: Copy text, Edit and Delete.',
       },
     ],
   },
@@ -915,7 +948,7 @@ const chat: StarterLesson[] = [
     single(
       'What does the red number on Chat in the side menu mean?',
       [
-        right('You have unread messages', 'Yes — muted conversations aren’t counted.'),
+        right('You have unread messages', 'Yes — muted and archived conversations aren’t counted.'),
         wrong('Your tasks are overdue', 'Overdue tasks show in My Tasks.'),
         wrong('Chat is switched off', 'It counts unread messages.'),
         wrong('The number of projects you have', 'It counts unread messages.'),
@@ -1042,13 +1075,15 @@ const admin: StarterLesson[] = [
       },
       {
         title: 'Change an account',
-        body: '<p>Click <strong>Edit</strong> on a person’s row. Under <strong>Roles &amp; permissions</strong> tick Administrator or Employee, and under <strong>Account status</strong> choose Active, Inactive or Suspended. Click <strong>Save changes</strong>.</p>',
+        body: '<p>Click <strong>Edit</strong> on a person’s row. Under <strong>Roles &amp; permissions</strong> tick Administrator or Employee, and under <strong>Account status</strong> choose Active, Inactive or Suspended. Under <strong>Training</strong>, <strong>Training manager</strong> lets someone run the Learning Hub without other administrator powers. Click <strong>Save changes</strong>.</p>',
         image: 'admin-edit-user.webp',
-        alt: 'The Manage account window: the person’s profile on the left, and Account status and Roles & permissions on the right.',
+        alt: 'The Manage account window: the person’s profile on the left; Account status, Roles & permissions and Training on the right.',
       },
       {
         title: 'When someone leaves',
         body: '<p>Make the account <strong>Inactive</strong>. The person is signed out everywhere at once; their tasks, comments and history stay.</p>',
+        image: 'admin-deactivate.webp',
+        alt: 'Choosing Inactive asks first: “Deactivate Nadia Ahmed?”, what happens (signed out everywhere; tasks and history stay), an optional reason and Deactivate.',
       },
     ],
   },
@@ -1059,21 +1094,27 @@ const admin: StarterLesson[] = [
     steps: [
       {
         title: 'System Settings',
-        body: '<p>Click <strong>System Settings</strong> in the Admin group for the company-wide settings: Notification &amp; Scheduling (working days, holidays, reminders), KPI targets, <strong>Companies</strong>, task carry-forward, the weekly management summary, accounts, the daily email, backups and the Learning Hub tour.</p>',
+        body: '<p>Click <strong>System Settings</strong> in the Admin group for the company-wide settings: Notification &amp; Scheduling (working days, holidays, reminders), KPI targets, <strong>Companies</strong>, Task carry-forward, the Weekly management summary, Accounts, the Learning Hub tour, the Daily email, Backups and the Error log.</p>',
         image: 'admin-settings.webp',
-        alt: 'The System Settings page with the Notification & Scheduling, KPI targets, Task carry-forward, Weekly management summary and Accounts cards.',
+        alt: 'The System Settings page with the Notification & Scheduling, KPI targets, Companies, Task carry-forward and Current settings cards.',
       },
       {
         title: 'Third Party and Companies',
-        body: '<p><strong>Third Party</strong>, in the Admin group, holds <strong>Clients</strong>, where you make client accounts and choose which projects each client sees, and <strong>Guest contacts</strong>, people outside the company named on tasks. <strong>Companies</strong> is inside System Settings: click <strong>Open Companies</strong>.</p>',
+        body: '<p><strong>Third Party</strong>, in the Admin group, has two pages. <strong>Clients</strong> is where you make client accounts and choose the projects each client sees. <strong>Guest contacts</strong> are people outside the company named on tasks. <strong>Companies</strong> is inside System Settings: click <strong>Open Companies</strong>.</p>',
+        image: 'admin-clients.webp',
+        alt: 'The New client window (Third Party → Clients): the client’s name, email and organisation, how they get in, and Project access with one project and what they may do there.',
       },
       {
         title: 'AI Management',
         body: '<p>In <strong>AI Management</strong> you connect an AI provider and choose the default models. MICO AI and the AI buttons around the site use them.</p>',
+        image: 'admin-ai.webp',
+        alt: 'AI Management: Providers & API access, and Connect a provider with the Service (here MICO360 AI), the name, the API key and Connect & load models.',
       },
       {
         title: 'Check what happened',
         body: '<p>Click your picture at the top right: the account menu under your name has <strong>Audit Logs</strong>, who did what and when; <strong>Error Log</strong>, problems in people’s browsers and on the server, kept for 30 days; and the <strong>Recycle Bin</strong>, deleted tasks kept for 60 days, which you can restore.</p>',
+        image: 'admin-logs.webp',
+        alt: 'The administrator’s account menu under their picture: Your profile, Settings, Recycle Bin, Error Log, Audit Logs and more.',
       },
     ],
   },
@@ -1130,7 +1171,7 @@ const admin: StarterLesson[] = [
 // 12 Nov: no sign-in lesson (a client who reads it is signed in already); the project pages come first.
 
 const portal: StarterCourse = {
-  key: 'starter:portal',
+  key: CLIENT_GUIDE_KEY,
   title: 'Client portal basics',
   summary: 'Follow your projects, sign off finished work, and read the meeting minutes shared with you.',
   moduleKey: 'portal',
@@ -1177,6 +1218,8 @@ const portal: StarterCourse = {
         {
           title: 'Ask a question or share a file',
           body: '<p>Under <strong>Comments</strong>, write a question or a note for the project team and click <strong>Send comment</strong>. Under <strong>Files</strong> you can download documents, and upload one when your access allows it.</p>',
+          image: 'portal-comment.webp',
+          alt: 'A task in the Client portal: Files with a document from the team to download and Upload a document, and Comments with a question typed and Send comment.',
         },
         {
           title: 'Read the minutes',
@@ -1187,6 +1230,8 @@ const portal: StarterCourse = {
         {
           title: 'Notices and your password',
           body: '<p>The bell at the top shows your notices. <strong>Notification settings</strong>, at the bottom of the page, chooses what you are told about. <strong>Change password</strong> is at the top.</p>',
+          image: 'portal-notices.webp',
+          alt: 'The Client portal’s Notifications page under the bell, with a new document notice, Notification settings, and Change password at the top.',
         },
       ],
     },

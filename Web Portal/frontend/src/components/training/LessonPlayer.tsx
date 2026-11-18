@@ -1,10 +1,12 @@
-import { useEffect, useId, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import type { LessonDone, LessonView } from '../../api/training';
 import { useDialog } from '../../hooks/useDialog';
 import { ApiError } from '../../lib/api-client';
 import { STATUS_CLASS } from '../../lib/colour-classes';
+import { useSidebarCollapsed } from '../../lib/appearance';
+import { useMediaQuery } from '../../lib/useMediaQuery';
 import { RichNoteView } from '../rich-text/RichNoteView';
 import { Button, buttonClass } from '../ui/Button';
 import { Breadcrumbs } from '../ui/Breadcrumbs';
@@ -12,32 +14,44 @@ import { ModalPortal } from '../ui/ModalPortal';
 import { dialogLayer, dialogPanel } from '../ui/dialog-size';
 import { CourseFinished } from './CourseFinished';
 import { DocumentLesson } from './DocumentLesson';
-import { GuideLesson, type LessonNext } from './GuideLesson';
-import { LessonFooter } from './LessonFooter';
-import { ModuleIcon } from './ModuleIcon';
+import { GuideLesson } from './GuideLesson';
+import { BackToLesson, LessonBar, LessonBarProvider, OutlinePanel, OutlineSheet, OutlineSheetButton, WayButton, WayError, type LessonWay } from './LessonNav';
 import { QuizLesson } from './QuizLesson';
 import { VideoLesson } from './VideoLesson';
-import { moduleKeyOf } from './dashboard-rules';
 import { coursePath, lessonPath, useLearner } from './learner';
+import { lessonOutline, nextWay, quizCovers, twoColumnQuery, type LessonOutlineModel } from './lesson-nav';
 import { courseChanged, useCourse, useLessonView } from './training-queries';
 import { LessonKindIcon, TOUCH_MIN, TickIcon, courseMoved, trainingProblem } from './training-ui';
 import { LESSON_KIND_WORDS, lessonsText, minutesText } from './training-words';
 import { LIMITS } from '../../api/training';
 
+/** The note the lesson before leaves on arriving here ("“…” done.", "Module done: Tasks"), from the address's state. */
+type ArrivalNote = { lessonDone: string | null; moduleDone: string | null } | null;
+function arrivalNote(state: unknown): ArrivalNote {
+  const s = state as { lessonDone?: unknown; moduleDone?: unknown } | null;
+  const lessonDone = typeof s?.lessonDone === 'string' && s.lessonDone ? s.lessonDone : null;
+  const moduleDone = typeof s?.moduleDone === 'string' && s.moduleDone ? s.moduleDone : null;
+  return lessonDone || moduleDone ? { lessonDone, moduleDone } : null;
+}
+
 /**
- * One lesson (staff and the Client portal; 12 Nov §4): the breadcrumbs and title, the lesson itself (a video, a guide,
- * a document or a quiz) with ONE way on — "Next lesson", or "Finish course" on the lesson that finishes it, or "Back
- * to the course" — and a small "Report a problem". A guide says "Step 2 of 6"; the others "Lesson 2 of 4". One note
- * when a lesson is done: on the next lesson's page ("“…” done."), or "Course completed" when the course is finished.
- *
- * A lesson of a module (1.23.30): breadcrumbs "Learning Hub › the course › the module" (the title is the heading),
- * and "Module done: Tasks" (one note) when this visit finished its module — on the next lesson's page, or here (a quiz,
- * a video). Next is the server's next lesson (hidden modules skipped). Old links: a lesson opened under another
- * course's address is moved to its own; a removed one (COURSE_MOVED) to its module.
- *
- * 13 Nov new look: a module's lesson has one header line — "Module 2 · Tasks — Lesson 2 of 3" (the module's place among
- * the person's own), a thin bar of the module's progress and "All modules" (the course at this module); every kind of
- * lesson ends with the same footer bar ("Previous lesson" … the one way on).
+ * One lesson (staff and the Client portal). 1.23.36 ("Lesson + module outline", owner 14 Nov):
+ *  - the header: breadcrumbs, the title, ONE line — the kind's icon · "Module 1 · Getting started — Lesson 1 of 3" ·
+ *    minutes (· Done) — and ONE bar of the module's progress, named for screen readers;
+ *  - with room for two columns (1280 px with the full side menu; 1024 px with it folded, or in the Client portal — the
+ *    lesson keeps about 640 px): the lesson (up to 880 px; a video at its full width) and beside it "In this module",
+ *    which stays in view: the module's lessons with their states, "1 of 3 done", the one main button and All modules;
+ *  - in one column: "Lessons in this module · 2 of 3" opens that list as a sheet, and a bar at the bottom of the window
+ *    holds Back and the main button (a guide's steps and a quiz's questions put their own Back / Next there);
+ *  - the main button says where it goes: "Next: <lesson>", "Next module: <name>", "Back to the course", or "Finish
+ *    course" on the lesson that finishes it. On a guide's last step and on a document it finishes the lesson, then goes
+ *    on (12 Nov §4: the same rules as before); elsewhere it goes on — the main look once the lesson is done, a plain
+ *    one before (and not at all to a lesson an in-order course keeps locked);
+ *  - the "“…” done." / "Module done: Tasks" note from the lesson before shows once: it is taken off the address (Back
+ *    never shows it again) and goes when the person does something here (a quiz's result, a guide's step) or opens
+ *    another lesson.
+ * Old links (1.23.30): a lesson under another course's address goes to its own; a removed one (COURSE_MOVED) to its
+ * module. "Course completed" (with the certificate) when this visit finished the course, then Next (My learning).
  */
 export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: string; lessonId: string; renderTitle: (title: string) => ReactNode }) {
   const side = useLearner();
@@ -46,22 +60,42 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
   const location = useLocation();
   const q = useLessonView(lessonId);
   const course = useCourse(courseId);
+  // Two columns when the lesson keeps about 640 px beside the panel (15 Nov): 1280 px with the full side menu, 1024 px
+  // with it folded (or in the Client portal).
+  const menuFolded = useSidebarCollapsed();
+  const wide = useMediaQuery(twoColumnQuery({ portal: side.portal, menuFolded }), true);
   const [done, setDone] = useState<LessonDone | null>(null);
   // Review I2: finished here, on this visit (latched: the course read again afterwards says COMPLETED).
   const [finishedHere, setFinishedHere] = useState(false);
   const [reporting, setReporting] = useState(false);
+  const [sheet, setSheet] = useState(false);
+  const [note, setNote] = useState<ArrivalNote>(() => arrivalNote(location.state));
+  // A guide on its last step (its main button then finishes it).
+  const [guideEnd, setGuideEnd] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [wayError, setWayError] = useState<string | null>(null);
+  // The phone bar: where a lesson's own controls go, and whether one is there.
+  const [slot, setSlot] = useState<HTMLElement | null>(null);
+  const [claims, setClaims] = useState(0);
+  const claim = useCallback((on: boolean) => setClaims((n) => Math.max(0, n + (on ? 1 : -1))), []);
+  const bar = useMemo(() => ({ wide, slot, claim }), [wide, slot, claim]);
   // Whether the lesson's module was already done when this lesson was first seen (so finishing it here can say so).
   const [moduleAtStart, setModuleAtStart] = useState<{ lessonId: string; done: boolean } | null>(null);
   const courseTo = coursePath(side.base, courseId);
-  const arrivedState = location.state as { lessonDone?: unknown; moduleDone?: unknown } | null;
-  const arrived = arrivedState?.lessonDone;
-  const arrivedModule = typeof arrivedState?.moduleDone === 'string' && arrivedState.moduleDone ? arrivedState.moduleDone : null;
+  const clearNote = useCallback(() => setNote(null), []);
 
-  // Another lesson: start afresh, at the top of the page.
+  // Another lesson: start afresh, at the top of the page. The note from the lesson before is read once and taken off
+  // the address, so coming Back here (or reloading) never shows it again.
   useEffect(() => {
     setDone(null);
     setFinishedHere(false);
+    setWayError(null);
+    setSheet(false);
+    const arrived = arrivalNote(location.state);
+    setNote(arrived);
+    if (arrived) navigate({ pathname: location.pathname, search: location.search, hash: location.hash }, { replace: true, state: null });
     document.scrollingElement?.scrollTo?.(0, 0);
+    // The lesson decides; the address's state is read as it is when the lesson opens.
   }, [lessonId]);
 
   // Old links: the lesson under another course's address goes to its own; a lesson that moved away (removed as a
@@ -105,33 +139,13 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
   }
 
   const lesson = q.data;
-  const outline = course.data?.lessons ?? [];
-  const at = outline.findIndex((l) => l.id === lesson.id);
-  const total = outline.length || lesson.lessonCount;
-  const nextId = lesson.nextLessonId;
+  const all = course.data?.lessons ?? [];
+  const outline = course.data ? lessonOutline(course.data, lesson.id) : null;
   // Finished before this visit: going through it again never says "Course completed" again.
   const wasFinished = course.data?.mine.status === 'COMPLETED' || course.data?.mine.status === 'REVIEW';
-  const othersDone = outline.length > 0 && outline.every((l) => l.id === lesson.id || l.done);
+  const othersDone = all.length > 0 && all.every((l) => l.id === lesson.id || l.done);
   const courseDone = finishedHere && lesson.kind !== 'QUIZ';
-  // Where the lesson sits in its module ("Module 2 · Tasks — Lesson 2 of 3"), from the course's outline of the person's
-  // own modules and lessons (a module hidden from them never counts).
-  const inModule =
-    lessonModule && moduleOutline && moduleOutline.lessonIds.includes(lesson.id)
-      ? {
-          title: lessonModule.title,
-          number: (course.data?.modules.findIndex((u) => u.id === moduleOutline.id) ?? -1) + 1,
-          at: moduleOutline.lessonIds.indexOf(lesson.id),
-          total: moduleOutline.lessonIds.length,
-          done: moduleOutline.lessonsDone,
-        }
-      : null;
-  // A plain course's lesson: "Lesson 2 of 4" (a guide says only its steps).
-  const place =
-    !lessonModule && at >= 0 ? (
-      <span className="font-semibold text-ink">
-        Lesson {at + 1} of {total}
-      </span>
-    ) : null;
+  const isDone = lesson.progress.done || done !== null;
   // This visit finished the lesson's module: the server says so (a guide, a document, a video), or the course read
   // again shows the module done that wasn't when the lesson opened (a quiz: its result doesn't say). The course
   // finished instead: "Course completed" says it all.
@@ -146,19 +160,53 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
     void qc.invalidateQueries({ queryKey: [...side.keyRoot, 'lesson', lesson.id], exact: true });
   };
 
-  /** The one way on (12 Nov §4). After the course is finished here, "Course completed" is said instead, with its Next. */
-  const next: LessonNext = {
-    label: nextId ? 'Next lesson' : othersDone && !wasFinished ? 'Finish course' : 'Back to the course',
-    go: (d) => {
-      if ((d?.courseCompleted && !wasFinished) || finishedHere) return;
-      const moduleDone = d?.moduleDone?.title;
-      if (nextId) navigate(lessonPath(side.base, courseId, nextId), { state: moduleDone ? { lessonDone: lesson.title, moduleDone } : { lessonDone: lesson.title } });
+  // The one way on (12 Nov §4, said where it goes since 1.23.36).
+  const finishes = !isDone && ((lesson.kind === 'GUIDE' && (guideEnd || lesson.steps.length === 0)) || (lesson.kind === 'DOCUMENT' && !!lesson.document));
+  const nw = nextWay({ course: course.data, lessonId: lesson.id, nextLessonId: lesson.nextLessonId, doneAfter: isDone || finishes, finishesCourse: finishes && othersDone && !wasFinished });
+  const target = nw.kind === 'lesson' || nw.kind === 'module' ? nw.lessonId : null;
+  const primary = isDone || finishes;
+  const nextLocked = !!target && !!all.find((l) => l.id === target)?.locked;
+  const runWay = async () => {
+    setBusy(true);
+    setWayError(null);
+    try {
+      const out = await side.api.complete(lesson.id);
+      finished(out);
+      // Finished the course here: "Course completed" says so on this page.
+      if (out.courseCompleted && !wasFinished) return;
+      const moduleDone = out.moduleDone?.title;
+      if (lesson.nextLessonId) navigate(lessonPath(side.base, courseId, lesson.nextLessonId), { state: moduleDone ? { lessonDone: lesson.title, moduleDone } : { lessonDone: lesson.title } });
       else navigate(courseTo);
-    },
+    } catch (err) {
+      setWayError(trainingProblem(err, lesson.kind === 'GUIDE' ? 'Couldn’t finish this guide.' : 'Couldn’t finish this lesson.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const way: LessonWay = {
+    label: nw.label,
+    prefix: 'prefix' in nw ? nw.prefix : undefined,
+    title: 'title' in nw ? nw.title : undefined,
+    finishes,
+    primary,
+    to: target ? lessonPath(side.base, courseId, target) : courseTo,
+    state: isDone ? { lessonDone: lesson.title } : undefined,
+    run: () => void runWay(),
+    busy,
+    hidden: finishedHere || (!primary && nextLocked),
+    error: wayError,
   };
 
-  return (
-    <div className="flex w-full max-w-3xl flex-col gap-4">
+  const prevTitle = all.find((l) => l.id === lesson.prevLessonId)?.title ?? null;
+  const back = <BackToLesson courseId={courseId} lessonId={lesson.prevLessonId} title={prevTitle} />;
+  // The course at this lesson's module (the outline's, else the lesson's own while the course is away).
+  const moduleId = outline ? outline.moduleId : (lessonModule?.id ?? null);
+  const allTo = moduleId ? coursePath(side.base, courseId, null, moduleId) : courseTo;
+  const allLabel = moduleId ? 'All modules' : 'Course page';
+  const showBar = !wide && (claims > 0 || !!lesson.prevLessonId || !way.hidden || !!wayError);
+
+  const body = (
+    <div className="flex min-w-0 flex-col gap-4">
       <div className="flex flex-col gap-2">
         <Breadcrumbs
           items={
@@ -177,37 +225,22 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
           }
         />
         {renderTitle(lesson.title)}
-        {inModule && moduleOutline && lessonModule ? <ModuleLine module={inModule} moduleKey={moduleKeyOf(moduleOutline)} to={coursePath(side.base, courseId, null, lessonModule.id)} /> : null}
-        {lesson.kind !== 'GUIDE' ? (
-          <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-2">
-            {place}
-            <span className="inline-flex items-center gap-1">
-              <LessonKindIcon kind={lesson.kind} size={14} />
-              {LESSON_KIND_WORDS[lesson.kind]}
-            </span>
-            {minutesText(lesson.minutes) ? <span>· {minutesText(lesson.minutes)}</span> : null}
-            {lesson.progress.done || done ? (
-              <span className="inline-flex items-center gap-1 font-semibold text-success">
-                <TickIcon size={14} />
-                Done
-              </span>
-            ) : null}
-          </p>
-        ) : null}
+        <LessonLine lesson={lesson} outline={outline} done={isDone} />
+        {!wide && outline ? <OutlineSheetButton outline={outline} open={sheet} onOpen={() => setSheet(true)} /> : null}
       </div>
 
-      {moduleFinished || (arrivedModule && !done) ? (
+      {moduleFinished || (note?.moduleDone && !done) ? (
         <p role="status" className="inline-flex items-center gap-2 self-start rounded-lg bg-success-soft px-3 py-1.5 text-sm font-semibold text-success">
           <TickIcon size={14} />
           <span>
             {'Module done: '}
-            <bdi>{moduleFinished ?? arrivedModule}</bdi>
+            <bdi>{moduleFinished ?? note?.moduleDone}</bdi>
           </span>
         </p>
-      ) : typeof arrived === 'string' && arrived && !done ? (
+      ) : note?.lessonDone && !done ? (
         <p role="status" className="inline-flex items-center gap-2 self-start rounded-lg bg-success-soft px-3 py-1.5 text-sm font-semibold text-success">
           <TickIcon size={14} />
-          {`“${arrived}” done.`}
+          {`“${note.lessonDone}” done.`}
         </p>
       ) : null}
 
@@ -228,75 +261,134 @@ export function LessonPlayer({ courseId, lessonId, renderTitle }: { courseId: st
         </div>
       ) : null}
 
-      <LessonBody key={lesson.id} lesson={lesson} onDone={finished} next={next} />
-
-      {lesson.kind === 'VIDEO' && !courseDone ? (
-        <LessonFooter
-          lesson={lesson}
-          next={
-            nextId ? (
-              <Link to={lessonPath(side.base, courseId, nextId)} state={lesson.progress.done || done ? { lessonDone: lesson.title } : undefined} className={buttonClass(lesson.progress.done || done ? 'primary' : 'secondary', 'md', TOUCH_MIN)}>
-                Next lesson
-              </Link>
-            ) : (
-              <Link to={courseTo} className={buttonClass('secondary', 'md', TOUCH_MIN)}>
-                Back to the course
-              </Link>
-            )
-          }
-        />
-      ) : null}
+      <LessonBody key={lesson.id} lesson={lesson} done={isDone} way={way} back={back} covers={outline ? quizCovers(outline) : []} onDone={finished} onGuideStep={setGuideEnd} onActivity={clearNote} />
 
       <div className="border-t border-line pt-3">
         <button type="button" onClick={() => setReporting(true)} className={`text-sm text-ink-2 underline-offset-2 hover:text-ink hover:underline ${TOUCH_MIN}`}>
           Report a problem
         </button>
       </div>
-      {reporting ? <ReportProblemDialog lesson={lesson} onClose={() => setReporting(false)} /> : null}
+
+      {showBar ? (
+        <LessonBar slotRef={setSlot} claimed={claims > 0} error={<WayError way={way} />}>
+          {back}
+          <WayButton way={way} className="ms-auto min-w-0 max-w-full flex-1 sm:flex-none" />
+        </LessonBar>
+      ) : null}
     </div>
+  );
+
+  return (
+    <LessonBarProvider value={bar}>
+      <div
+        data-lesson-layout
+        // The panel 256 px beside the lesson up to 1279 px (a folded menu: the lesson keeps 640 px), 280–300 px from 1280.
+        className={`grid w-full min-w-0 ${wide ? (side.portal ? 'grid-cols-[minmax(0,1fr)_16rem] gap-4 xl:grid-cols-[minmax(0,1fr)_17.5rem] xl:gap-6' : 'grid-cols-[minmax(0,55rem)_16rem] gap-4 xl:grid-cols-[minmax(0,55rem)_18.75rem] xl:gap-6') : 'grid-cols-1 gap-6'}`}
+      >
+        <div className="min-w-0 self-start">{body}</div>
+        {wide ? (
+          <div className="min-w-0">
+            <OutlinePanel
+              outline={outline}
+              courseId={courseId}
+              allTo={allTo}
+              allLabel={allLabel}
+              way={way}
+              problem={course.isError ? { text: 'Couldn’t load this course’s lessons.', retry: () => void course.refetch() } : null}
+            />
+          </div>
+        ) : null}
+      </div>
+      {sheet && outline && !wide ? (
+        <OutlineSheet
+          outline={outline}
+          courseId={courseId}
+          allTo={allTo}
+          allLabel={allLabel}
+          onClose={() => setSheet(false)}
+        />
+      ) : null}
+      {reporting ? <ReportProblemDialog lesson={lesson} onClose={() => setReporting(false)} /> : null}
+    </LessonBarProvider>
   );
 }
 
 /**
- * A module's lesson's one header line (13 Nov new look): the module's icon, "Module 2 · Tasks — Lesson 2 of 3", "All
- * modules" (back to the course, this module open) and under it a thin bar of how much of the module is done.
+ * The header's one line (1.23.36): the kind as an icon (its name for screen readers), "Module 2 · Tasks — Lesson 2 of
+ * 3" (a course without modules: "Lesson 2 of 4"), the minutes and, once done, "Done"; under it ONE thin bar of the
+ * module's (or course's) lessons done, named for screen readers ("Tasks: 1 of 3 lessons done"). The place and the bar
+ * come with the course's outline (nothing guessed before it arrives).
  */
-function ModuleLine({ module: m, moduleKey, to }: { module: { title: string; number: number; at: number; total: number; done: number }; moduleKey: string | null; to: string }) {
-  const pct = m.total > 0 ? Math.min(100, Math.round((m.done / m.total) * 100)) : 0;
+function LessonLine({ lesson, outline, done }: { lesson: LessonView; outline: LessonOutlineModel | null; done: boolean }) {
+  const minutes = minutesText(lesson.minutes);
+  const pct = outline && outline.total > 0 ? Math.min(100, Math.round((outline.done / outline.total) * 100)) : 0;
+  const place = !outline ? null : outline.scope === 'module' ? (
+    <>
+      {`Module ${outline.number} · `}
+      <bdi>{outline.title}</bdi>
+      {` — Lesson ${outline.at + 1} of ${outline.total}`}
+    </>
+  ) : (
+    `Lesson ${outline.at + 1} of ${outline.total}`
+  );
   return (
     <div data-lesson-header className="flex flex-col gap-1.5">
-      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-        <p data-lesson-place className="flex min-w-0 items-center gap-2 text-sm font-semibold text-ink">
-          <span aria-hidden="true" className="grid h-6 w-6 flex-none place-items-center rounded-md bg-brand/10 text-brand">
-            <ModuleIcon moduleKey={moduleKey} size={14} />
+      <p data-lesson-line className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-ink-2">
+        <span className="inline-flex items-center text-ink-2">
+          <LessonKindIcon kind={lesson.kind} size={15} />
+          <span className="sr-only">{`${LESSON_KIND_WORDS[lesson.kind]}:`}</span>
+        </span>
+        {place ? (
+          <span data-lesson-place className="min-w-0 break-words font-semibold text-ink">
+            {place}
           </span>
-          <span className="min-w-0 break-words">
-            {m.number > 0 ? `Module ${m.number} · ` : null}
-            <bdi>{m.title}</bdi>
-            {` — Lesson ${m.at + 1} of ${m.total}`}
+        ) : null}
+        {minutes && place ? <span aria-hidden="true">·</span> : null}
+        {minutes ? <span>{minutes}</span> : null}
+        {done ? (
+          <span className="inline-flex items-center gap-1 font-semibold text-success">
+            <TickIcon size={14} />
+            Done
           </span>
-        </p>
-        <Link to={to} className={`inline-flex items-center rounded text-sm font-semibold text-brand underline-offset-2 outline-none hover:underline focus-visible:ring-2 focus-visible:ring-brand/40 ${TOUCH_MIN}`}>
-          All modules
-        </Link>
-      </div>
-      <div role="progressbar" aria-label={`${m.title}: ${m.done} of ${lessonsText(m.total)} done`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} className="h-1 overflow-hidden rounded-full bg-line">
-        <div className={`h-full rounded-full transition-[width] motion-reduce:transition-none ${pct >= 100 ? STATUS_CLASS.DONE.dot : 'bg-brand'}`} style={{ width: `${pct}%` }} />
-      </div>
+        ) : null}
+      </p>
+      {outline ? (
+        <div role="progressbar" aria-label={`${outline.title}: ${outline.done} of ${lessonsText(outline.total)} done`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} className="h-1 overflow-hidden rounded-full bg-line">
+          <div className={`h-full rounded-full transition-[width] motion-reduce:transition-none ${pct >= 100 ? STATUS_CLASS.DONE.dot : 'bg-brand'}`} style={{ width: `${pct}%` }} />
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function LessonBody({ lesson, onDone, next }: { lesson: LessonView; onDone: (d: LessonDone) => void; next: LessonNext }) {
+function LessonBody({
+  lesson,
+  done,
+  way,
+  back,
+  covers,
+  onDone,
+  onGuideStep,
+  onActivity,
+}: {
+  lesson: LessonView;
+  done: boolean;
+  way: LessonWay;
+  back: ReactNode;
+  covers: string[];
+  onDone: (d: LessonDone) => void;
+  onGuideStep: (atEnd: boolean) => void;
+  onActivity: () => void;
+}) {
   switch (lesson.kind) {
     case 'VIDEO':
       return <VideoLesson lesson={lesson} onDone={onDone} />;
     case 'GUIDE':
-      return <GuideLesson lesson={lesson} onDone={onDone} next={next} />;
+      return <GuideLesson lesson={lesson} done={done} way={way} back={back} onStep={onGuideStep} onMoved={onActivity} />;
     case 'DOCUMENT':
-      return <DocumentLesson lesson={lesson} onDone={onDone} next={next} />;
+      return <DocumentLesson lesson={lesson} />;
     case 'QUIZ':
-      return <QuizLesson lesson={lesson} onDone={onDone} />;
+      return <QuizLesson lesson={lesson} onDone={onDone} covers={covers} onActivity={onActivity} />;
     default:
       return null;
   }

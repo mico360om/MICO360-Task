@@ -256,7 +256,7 @@ describe('Kanban board: search', () => {
     await user.type(box(), 'pump');
     await waitFor(() => expect(cardKeys()).toEqual(['MICO-1', 'MICO-2']));
     created = task('t9', 'MICO-9', 'Order cement', 'p1', 'p1-todo', 'TODO');
-    await user.click(screen.getByRole('button', { name: /\+ new task/i }));
+    await user.click(screen.getAllByRole('button', { name: /^Add a task to / })[0]!); // s137: a column's +
     const dialog = await screen.findByRole('dialog', { name: /new task/i });
     await user.type(within(dialog).getByLabelText(/task title/i), 'Order cement');
     await user.click(within(dialog).getByRole('button', { name: 'Create task' }));

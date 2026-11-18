@@ -70,6 +70,46 @@ describe('AiFeatureService', () => {
     expect(prompt).toContain('Today is 2026-09-27');
   });
 
+  // s137: "Describe it in plain English" detail level (Short · Default · Detailed).
+  describe('describe a task: detail level', () => {
+    const promptFor = async (detail?: 'short' | 'default' | 'detailed') => {
+      let prompt = '';
+      const fetchImpl = (async (_url: string, init?: RequestInit) => {
+        prompt = JSON.parse(String(init!.body)).messages[0].content;
+        return new Response(JSON.stringify({ choices: [{ message: { content: '{"title":"x","dueDate":null,"priority":null}' } }] }), { status: 200 });
+      }) as unknown as typeof fetch;
+      const svc = createAiFeatureService({ repo: createMemoryAiConfigRepository(config), fetchImpl });
+      await svc.parseTask({ text: 'send the site report every monday', today: '2026-11-17', ...(detail ? { detail } : {}) });
+      return prompt;
+    };
+
+    it('a missing level is Default: today’s title and description guidance', async () => {
+      const none = await promptFor();
+      expect(none).toBe(await promptFor('default'));
+      expect(none).toContain('Title: concise, without date, priority, repeat or project words. Description: only details the note gives beyond the title, in a sentence or two; else null.');
+    });
+
+    it('Short asks for a 3–6 word title and a one-sentence description', async () => {
+      const p = await promptFor('short');
+      expect(p).toMatch(/Title: 3 to 6 words/);
+      expect(p).toMatch(/Description: one short sentence/);
+      expect(p).not.toContain('in a sentence or two');
+    });
+
+    it('Detailed asks for a fuller description with a 3–6 point "What to do" list', async () => {
+      const p = await promptFor('detailed');
+      expect(p).toMatch(/Description: a fuller description/);
+      expect(p).toMatch(/"What to do:" list of 3 to 6 short points/);
+    });
+
+    it('only the title and description guidance changes: dates, repeat, priority and project read the same', async () => {
+      const rest = (p: string) => p.split('\n').filter((l) => !l.startsWith('Title:'));
+      const def = rest(await promptFor('default'));
+      expect(rest(await promptFor('short'))).toEqual(def);
+      expect(rest(await promptFor('detailed'))).toEqual(def);
+    });
+  });
+
   it('rate-limits each user (per minute and per day)', async () => {
     const repo = createMemoryAiConfigRepository(config);
     const fetchImpl = (async () => new Response(JSON.stringify({ choices: [{ message: { content: 'ok' } }] }), { status: 200 })) as unknown as typeof fetch;

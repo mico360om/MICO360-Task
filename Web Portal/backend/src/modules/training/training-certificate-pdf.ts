@@ -1,15 +1,23 @@
 /**
- * Training Center certificates (owner answers 6 and 12; R10): one A4 page in the 1.23.11 PDF standard —
- * the learner's company logo and name (else the site's), the learner, the course, the day they completed
- * it, the quiz score when the course has one, when it stops being valid, the certificate's code and the
- * public verification link, and "Issued by" a Training manager or administrator with an optional
- * signature picture. An expired or revoked certificate says so on a strip under the header.
+ * Learning Hub certificates (owner answers 6 and 12; R10). 1.23.35 (owner, 14 Nov: "use similar design for the
+ * certificate"): one A4 landscape page laid out like the owner's picture — the logo top left (the learner's company's,
+ * else MICO360's), "CERTIFICATE / OF COMPLETION", "THIS CERTIFIES THAT", the learner's name large in a script face in
+ * brand red (Noto Naskh Arabic for a name with Arabic letters; a long name shrinks to one line), "has successfully
+ * completed" the course, the company with "Issued through MICO360 Tasks · Learning Hub" over a thin red line, the detail
+ * rows (certificate-art.ts: Completed and issued, Quiz score, Expires, Certificate ID, Issued by with a small signature),
+ * and the QR code of the public check in a laurel wreath with "Scan to verify". An expired or revoked certificate gets a
+ * large faint diagonal stamp and its date and reason in the rows. Every shape is a vector drawing (certificate-art.ts).
  */
-import { PdfDocument, PDF_STANDARD, type KeyValueRow, type RGB } from '../../lib/pdf-document';
-import { BRAND, formatDay, printedLine, slugPart } from '../../lib/export-format';
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import PDFDocument from 'pdfkit';
+import { drawTextLine, layoutText, measureText, registerPdfFonts, type FontKey } from '../../lib/pdf-text';
+import { printableImage } from '../../lib/pdf-image';
+import { slugPart } from '../../lib/export-format';
 import { zonedDayKey } from '../../lib/due-date';
 import { resolveBrand } from '../email/brand';
 import { qrMatrix } from './training-qr';
+import { CERT_COLORS, CERT_PAGE, CERT_SCAN, CERT_SHAPES, CERT_STAMP, CERT_TEXT, CERT_WREATH, certNameSize, certQrBox, certificateDay, certificateRows, certificateStamp, certificateWords, shapePath, type CertFace, type CertMeasure } from './certificate-art';
 import type { CertificateStatus } from './training-types';
 
 export interface CertificatePdf {
@@ -28,73 +36,156 @@ export interface CertificatePdf {
   /** `<site origin>/verify/<code>` (built by the caller). */
   verifyUrl: string;
   status: CertificateStatus;
+  /** When it was revoked (a revoked certificate's "Revoked on" row). */
+  revokedAt?: Date | null;
   revokedReason?: string | null;
   /** The learner's company brand (its name + logo), else the site's: name null = the site's default name. */
   company: { companyName: string | null; logo: Buffer | null };
   timeZone: string;
 }
 
-const MUTED: RGB = [0.42, 0.4, 0.38];
+/** A picture pdfkit has opened (embedded once), with its size in pixels. */
+interface Opened {
+  width: number;
+  height: number;
+}
 
-/** The certificate as a PDF (one A4 portrait page). */
-export function buildCertificatePdf(c: CertificatePdf, opts: { printedBy?: string | null; now?: Date } = {}): Buffer {
-  const companyName = c.company.companyName ?? resolveBrand().companyName;
-  const day = (at: Date) => formatDay(zonedDayKey(at, c.timeZone));
-  const doc = new PdfDocument({
-    title: `Certificate - ${c.courseTitle} - ${c.learnerName}`,
-    runningTitle: 'Certificate of completion',
-    // Owner, 11 Nov night: the area is the Learning Hub.
-    footer: { company: companyName, printed: printedLine(opts.now ?? new Date(), c.timeZone, opts.printedBy ?? null), extra: [`Issued through ${resolveBrand().productName} · Learning Hub`] },
-    palette: { brand: BRAND },
-    ...(c.company.logo ? { logo: c.company.logo } : {}),
+/**
+ * The built-in logo for the certificate: assets/logo-certificate.png, the brand logo flattened onto white at about
+ * 300 dpi for its 150 × 58 pt box (the PDF standard's logo-pdf.png is made for a 26 pt header), found next to the
+ * server or the source.
+ */
+let builtInLogo: Buffer | null | undefined;
+function certificateLogo(): Buffer | null {
+  if (builtInLogo !== undefined) return builtInLogo;
+  const name = 'logo-certificate.png';
+  const candidates = [resolve(process.cwd(), 'assets', name), resolve(__dirname, '../../../assets', name), resolve(__dirname, '../../../../assets', name)];
+  const found = candidates.find((c) => existsSync(c));
+  builtInLogo = found ? readFileSync(found) : null;
+  return builtInLogo;
+}
+
+/** Widths as the PDF sets them (fontkit, the embedded faces): the shared layout's measure. */
+const pdfMeasure: CertMeasure = (text, face, size, spacing = 0) => {
+  const width = face === 'heading' ? measureText(text, size, false, 'display-black') : face === 'script' ? measureText(text, size, false, 'script') : measureText(text, size, face === 'text-bold');
+  return width + spacing * Array.from(text).length;
+};
+
+/** The size the learner's name is printed at: 66 pt, or smaller so it fits the column on one line. */
+export function certificateNameSize(name: string): number {
+  return certNameSize(name, pdfMeasure);
+}
+
+/** pdfkit's face for words drawn as they are (the fixed English words with letter spacing, the heading). */
+const FIXED_FONT: Record<CertFace, FontKey> = { heading: 'display-black', text: 'latin', 'text-bold': 'latin-bold', script: 'script', arabic: 'arabic' };
+
+/** The certificate as a PDF (one A4 landscape page). */
+export function buildCertificatePdf(c: CertificatePdf, _opts: { printedBy?: string | null; now?: Date } = {}): Buffer {
+  // The certificate's dates in full ("14 November 2026"), in the site's zone.
+  const day = (at: Date) => certificateDay(zonedDayKey(at, c.timeZone));
+  const doc = new PDFDocument({
+    size: 'A4',
+    layout: 'landscape',
+    margin: 0,
+    autoFirstPage: false,
+    displayTitle: true,
+    info: { Title: `Certificate - ${c.courseTitle} - ${c.learnerName}`, Creator: 'MICO360 Tasks', Producer: 'MICO360 Tasks' },
   });
-  doc.reportHeader({ title: 'Certificate of completion', subtitle: companyName, details: ['Learning Hub'] });
-
-  if (c.status === 'REVOKED') doc.statusStrip(c.revokedReason?.trim() ? `Revoked: ${c.revokedReason.trim()}` : 'Revoked', 'warning');
-  else if (c.status === 'EXPIRED') doc.statusStrip(c.expiresAt ? `Expired on ${day(c.expiresAt)}` : 'Expired', 'warning');
-
-  const S = PDF_STANDARD.space;
-  doc.spacer(S.xl * 3);
-  doc.text('This certifies that', { align: 'center', color: MUTED, gap: S.m });
-  doc.text(c.learnerName, { align: 'center', bold: true, size: 22, gap: S.l });
-  doc.text('has completed', { align: 'center', color: MUTED, gap: S.m });
-  doc.text(c.courseTitle, { align: 'center', bold: true, size: 16, gap: S.s });
-  doc.text(`on ${day(c.completedAt)}`, { align: 'center', gap: S.xl * 2 });
-
-  const left: KeyValueRow[] = [['Completed', day(c.completedAt)]];
-  if (day(c.issuedAt) !== day(c.completedAt)) left.push(['Issued', day(c.issuedAt)]);
-  if (c.scorePct !== null) left.push(['Quiz score', `${c.scorePct}%`]);
-  if (c.expiresAt) left.push([c.status === 'EXPIRED' ? 'Expired on' : 'Valid until', day(c.expiresAt)]);
-  const right: KeyValueRow[] = [['Certificate code', c.code]];
-  doc.rule();
-  doc.spacer(S.s);
-  doc.keyValueColumns(left, right);
-  doc.spacer(S.m);
-  // The whole link on one line of its own (a narrow column would break it).
-  doc.styledText([{ text: 'Check this certificate at ' }, { text: c.verifyUrl, href: c.verifyUrl }], { size: PDF_STANDARD.type.data, gap: S.s });
-  if (c.verifyUrl) {
+  registerPdfFonts(doc);
+  doc.addPage({ size: 'A4', layout: 'landscape', margin: 0 });
+  const open = (buf: Buffer | null): Opened | null => {
+    const printable = buf ? printableImage(buf) : null;
+    if (!printable) return null;
     try {
-      doc.spacer(S.s);
-      doc.qr(qrMatrix(c.verifyUrl), 96);
-      doc.spacer(S.s);
+      const img = (doc as unknown as { openImage(src: Buffer): Opened }).openImage(printable);
+      return img.width > 0 && img.height > 0 ? img : null;
     } catch {
-      // A link too long for a QR code: the written link above still works.
+      return null;
     }
-  }
-  doc.rule();
+  };
+  const draw = (img: Opened, x: number, top: number, w: number, h: number) => (doc as unknown as { image(src: Opened, x: number, y: number, o: { width: number; height: number }): unknown }).image(img, x, top, { width: w, height: h });
 
-  if (c.issuerName) {
-    doc.spacer(S.xl);
-    doc.text('Issued by', { color: MUTED, size: PDF_STANDARD.type.small, gap: S.xs });
-    const picture = c.signature ? doc.prepareImage(c.signature) : null;
-    const who = c.issuerTitle ? `${c.issuerName}, ${c.issuerTitle}` : c.issuerName;
-    if (picture) doc.imageGrid([{ image: picture, caption: who }], { columns: 3, height: 48 });
-    else {
-      doc.text(c.issuerName, { bold: true, gap: S.xs });
-      if (c.issuerTitle) doc.text(c.issuerTitle, { color: MUTED });
+  // The paper and its shapes, the wreath (decoration: an artifact, skipped by readers and copy/paste).
+  doc.markContent('Artifact', { type: 'Layout' });
+  doc.rect(0, 0, CERT_PAGE.width, CERT_PAGE.height).fill(CERT_COLORS.paper);
+  for (const shape of CERT_SHAPES) doc.save().fillOpacity(shape.opacity).path(shapePath(shape)).fill(shape.color).restore();
+  for (const d of CERT_WREATH.paths) doc.path(d).fill(CERT_WREATH.color);
+  doc.endMarkedContent();
+
+  // The logo: the learner's company's, else MICO360's, in the top-left box.
+  const logo = open(c.company.logo) ?? open(certificateLogo());
+  if (logo) {
+    const k = Math.min(CERT_TEXT.logo.width / logo.width, CERT_TEXT.logo.height / logo.height);
+    draw(logo, CERT_TEXT.logo.x, CERT_TEXT.logo.top + (CERT_TEXT.logo.height - logo.height * k) / 2, logo.width * k, logo.height * k);
+  }
+
+  // The words on the left (certificate-art.ts places them), as large as fits.
+  const rows = certificateRows({ ...c, revokedAt: c.revokedAt ?? null, revokedReason: c.revokedReason ?? null }, day);
+  const signature = c.issuerName?.trim() ? open(c.signature) : null;
+  const plan = certificateWords(
+    { learnerName: c.learnerName, courseTitle: c.courseTitle, companyName: c.company.companyName?.trim() || resolveBrand().companyName, productName: resolveBrand().productName, rows, signature },
+    pdfMeasure,
+  );
+  if (signature && plan.signature) draw(signature, plan.signature.x, plan.signature.top, plan.signature.width, plan.signature.height);
+  doc.rect(plan.rule.x, plan.rule.y, plan.rule.width, plan.rule.height).fill(CERT_COLORS.red);
+  for (const w of plan.words) {
+    if (w.spacing > 0 || w.face === 'heading') {
+      // Fixed English words, letter-spaced: drawn as they are.
+      doc.markContent('Span', { actual: w.text });
+      doc.font(FIXED_FONT[w.face]).fontSize(w.size).fillColor(w.color).text(w.text, w.x, w.baseline, { lineBreak: false, baseline: 'alphabetic', characterSpacing: w.spacing });
+      doc.endMarkedContent();
+    } else {
+      // The learner's, the course's and the company's words: shaped and ordered by the text engine (Arabic too).
+      const line = layoutText(w.text, { size: w.size, bold: w.face === 'text-bold', family: w.face === 'script' ? 'script' : 'text' })[0];
+      if (line) drawTextLine(doc, line, w.x, w.baseline, w.size, w.color);
     }
   }
-  return doc.build();
+
+  // The QR code of the public check, dark on white in the wreath's middle, a link too; "Scan to verify" under it.
+  let matrix: boolean[][] | null = null;
+  try {
+    matrix = c.verifyUrl ? qrMatrix(c.verifyUrl) : null;
+  } catch {
+    matrix = null; // a link too long for a QR code
+  }
+  if (matrix && matrix.length > 0) {
+    const box = certQrBox(matrix.length);
+    doc.save().rect(box.x, box.y, box.size, box.size).fill('#ffffff');
+    doc.fillColor('#000000');
+    matrix.forEach((row, r) =>
+      row.forEach((dark, col) => {
+        if (dark) doc.rect(box.x + (col + 4) * box.unit, box.y + (r + 4) * box.unit, box.unit + 0.15, box.unit + 0.15);
+      }),
+    );
+    doc.fill().restore();
+    doc.link(box.x, box.y, box.size, box.size, c.verifyUrl);
+    const scan = 'Scan to verify';
+    const w = measureText(scan, CERT_SCAN.size, true);
+    doc.markContent('Span', { actual: scan });
+    doc.font('latin-bold').fontSize(CERT_SCAN.size).fillColor(CERT_COLORS.ink).text(scan, CERT_SCAN.cx - w / 2, CERT_SCAN.baseline, { lineBreak: false, baseline: 'alphabetic' });
+    doc.endMarkedContent();
+  }
+
+  // Expired or revoked: a large faint stamp across the words, turned.
+  const stamp = certificateStamp(c.status);
+  if (stamp) {
+    const size = CERT_STAMP.size;
+    const w = measureText(stamp.text, size, false, 'display-black');
+    const h = size * 0.686;
+    doc.save().translate(CERT_STAMP.cx, CERT_STAMP.cy).rotate(CERT_STAMP.angle);
+    doc.fillOpacity(CERT_STAMP.opacity).strokeOpacity(CERT_STAMP.opacity);
+    doc.lineWidth(5).roundedRect(-w / 2 - 22, -h / 2 - 20, w + 44, h + 40, 14).stroke(stamp.color);
+    doc.markContent('Span', { actual: stamp.text });
+    doc.font('display-black').fontSize(size).fillColor(stamp.color).text(stamp.text, -w / 2, h / 2, { lineBreak: false, baseline: 'alphabetic' });
+    doc.endMarkedContent();
+    doc.restore();
+  }
+
+  doc.end();
+  // pdfkit writes the whole file synchronously during end(); drain the stream buffer.
+  const chunks: Buffer[] = [];
+  for (let chunk = doc.read() as Buffer | null; chunk !== null; chunk = doc.read() as Buffer | null) chunks.push(chunk);
+  return Buffer.concat(chunks);
 }
 
 /** certificate-<course>-<learner>-<CODE>.pdf (letters, digits and dashes only). */
