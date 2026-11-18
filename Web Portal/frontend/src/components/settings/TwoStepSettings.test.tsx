@@ -86,14 +86,14 @@ describe('the red banner while two-step sign-in is off', () => {
     status = { on: false, reason: 'switched-off', trustedBrowsers: 0, thisBrowserTrustedUntil: null };
     signIn(['ADMIN']);
     wrap(<TwoStepOffBanner />);
-    expect(await screen.findByRole('alert')).toHaveTextContent('Two-step sign-in is switched off on the server.');
+    expect(await screen.findByRole('status')).toHaveTextContent('Two-step sign-in is switched off on the server.');
   });
 
   it('… and when email isn’t set up', async () => {
     status = { on: false, reason: 'email-not-set-up', trustedBrowsers: 0, thisBrowserTrustedUntil: null };
     signIn(['ADMIN']);
     wrap(<TwoStepOffBanner />);
-    expect(await screen.findByRole('alert')).toHaveTextContent('Two-step sign-in is off: email isn’t set up on the server.');
+    expect(await screen.findByRole('status')).toHaveTextContent('Two-step sign-in is off: email isn’t set up on the server.');
   });
 
   it('nothing while it is on, and nothing (not even asked) for an employee', async () => {

@@ -74,7 +74,7 @@ const authUsers = (): AuthUserRepository => ({
   },
 });
 
-async function makeApp(o: { secureCookies?: boolean } = {}) {
+async function makeApp(o: { secureCookies?: boolean; failTrust?: boolean } = {}) {
   const signInChallenges = createSignInChallenges({
     store: createMemorySignInChallengeStore(),
     key: 'route-test-key',
@@ -132,7 +132,7 @@ async function makeApp(o: { secureCookies?: boolean } = {}) {
   const twoStep = createTwoStep({
     switchedOn,
     mailConfigured: () => mailOn,
-    store: createMemoryTrustedBrowserStore(),
+    store: o.failTrust ? { ...createMemoryTrustedBrowserStore(), create: async () => { throw new Error('database away'); } } : createMemoryTrustedBrowserStore(),
     key: 'trusted-browser-test-key-long-enough',
     notifyTrusted: async (user, info) => void notices.push({ to: user.email, browser: info.browser }),
   });
@@ -367,6 +367,41 @@ describe('the website: an administrator’s password, then a code', () => {
     const bare = c.pair.replace('__Secure-', '');
     const planted = await post(app, '/auth/login', { identifier: 'boss', password: PW, ...WEBSITE }, { cookie: bare });
     expect(planted.json().data.challenge).toBeDefined();
+  });
+});
+
+describe('review fixes (1.24)', () => {
+  it('a trust that can’t be saved never costs the sign-in: the session comes, no cookie', async () => {
+    const app = await makeApp({ failTrust: true });
+    const { done } = await signInWithCode(app, 'boss', true);
+    expect(done.statusCode).toBe(200);
+    expect(done.json().data.accessToken).toEqual(expect.any(String));
+    expect(trustCookie(done)).toBeNull();
+  });
+
+  it('an unconfirmed admin’s code (the second step too) is audited as two-step: sent, failed', async () => {
+    people.get('boss')!.emailVerifiedAt = null;
+    const app = await makeApp();
+    const { challenge } = (await post(app, '/auth/login', { identifier: 'boss', password: PW, ...WEBSITE })).json().data;
+    const wrong = lastMail().code === '000000' ? '111111' : '000000';
+    await post(app, '/auth/challenge/verify', { challenge: challenge.token, code: wrong });
+    expect(actions()).toEqual(['auth.two_step.code_sent', 'auth.two_step.failed']);
+  });
+
+  it('a dead trust cookie (another session version) is cleared with the code step', async () => {
+    const app = await makeApp();
+    const cookie = trustCookie((await signInWithCode(app, 'boss', true)).done)!.pair;
+    people.get('boss')!.tokenVersion += 1;
+    const again = await post(app, '/auth/login', { identifier: 'boss', password: PW, ...WEBSITE }, { cookie });
+    expect(trustCookie(again)!.raw).toMatch(/^mico_tb_[0-9a-f]{12}=; Path=\/api\/v1\/auth; Max-Age=0;/);
+  });
+
+  it('a replayed renewal (a lost reply retried) of an admin without the flag is refused too', async () => {
+    const app = await makeApp();
+    const web = (await signInWithCode(app, 'boss', false)).done.json().data;
+    expect((await post(app, '/auth/refresh', { refreshToken: web.refreshToken, acceptChallenge: true })).statusCode).toBe(200);
+    const replay = await post(app, '/auth/refresh', { refreshToken: web.refreshToken });
+    expect(replay.statusCode).toBe(401);
   });
 });
 

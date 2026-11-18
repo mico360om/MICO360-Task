@@ -43,6 +43,7 @@ export interface AuthRouteDeps {
    * without its flag, so a tab still on the previous version isn't signed out by the release.
    */
   websiteOrigin?: string;
+  logger?: { warn(msg: string, ctx?: Record<string, unknown>): void };
 }
 
 const identifier = z.string().trim().min(1).max(191);
@@ -100,8 +101,16 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDe
     throw new AdminWebsiteOnlyError();
   };
   /** "Trust this browser for 30 days": the cookie, the audit row and the emailed notice. */
+  // Review fix: the code (or the new password) is already used here, so a trust that can't be saved is
+  // only logged: the sign-in goes on without it (the next one asks for a code again).
   async function trustThisBrowser(req: FastifyRequest, reply: FastifyReply, user: SessionUser): Promise<void> {
-    const t = await twoStep!.trust(user, req.headers['user-agent']);
+    let t: Awaited<ReturnType<TwoStep['trust']>>;
+    try {
+      t = await twoStep!.trust(user, req.headers['user-agent']);
+    } catch (err) {
+      deps.logger?.warn('two-step: a browser could not be trusted', { userId: user.id, error: err instanceof Error ? err.message : String(err) });
+      return;
+    }
     reply.header('set-cookie', trustCookieHeader(trustCookieName(req, user.id), t.value, t.maxAgeSeconds, secure(req)));
     await auditAuth(req, user.id, 'auth.two_step.browser_trusted', { browser: t.label });
   }
@@ -125,11 +134,15 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDe
     if (verification && (await verification.needsCode(user.id))) {
       if (!acceptChallenge || !challenges) throw new EmailNotVerifiedError();
       const challenge = await challenges.start({ id: user.id, email: user.email }, 'VERIFY_EMAIL');
+      if (twoStepNeeded && challenge.codeSent) await auditAuth(req, user.id, 'auth.two_step.code_sent');
       return reply.send({ data: { challenge: { ...challenge, trustOffered: twoStepNeeded } } });
     }
     // 1.24: an untrusted browser (or one past its 30 days) gets the code.
-    if (twoStepNeeded && !(await twoStep!.trustedUntil(user, readCookie(req.headers.cookie, trustCookieName(req, user.id))))) {
+    const held = twoStepNeeded ? readCookie(req.headers.cookie, trustCookieName(req, user.id)) : null;
+    if (twoStepNeeded && !(await twoStep!.trustedUntil(user, held))) {
       const challenge = await challenges!.start({ id: user.id, email: user.email }, 'TWO_STEP');
+      // Review fix: a dead trust cookie (past its 30 days, forgotten, another session version) is cleared.
+      if (held) reply.header('set-cookie', trustCookieHeader(trustCookieName(req, user.id), '', 0, secure(req)));
       if (challenge.codeSent) await auditAuth(req, user.id, 'auth.two_step.code_sent');
       return reply.send({ data: { challenge: { ...challenge, trustOffered: true } } });
     }
@@ -148,7 +161,9 @@ export async function registerAuthRoutes(app: FastifyInstance, deps: AuthRouteDe
       const done = await challenges.verify(challenge, code, {
         // 1.24: a wrong two-step code (or the tries running out) is an audit row (never the code).
         onFailure: async (who, reason) => {
-          if (who.kind === 'TWO_STEP') await auditAuth(req, who.userId, 'auth.two_step.failed', { reason });
+          // (An unconfirmed administrator's VERIFY_EMAIL code is their second step too.)
+          const asTwoStep = who.kind === 'TWO_STEP' || needsTwoStep({ roles: (await deps.authService.getUserForSession(who.userId).catch(() => null))?.roles ?? [] });
+          if (asTwoStep) await auditAuth(req, who.userId, 'auth.two_step.failed', { reason });
         },
       });
       const user = await deps.authService.getUserForSession(done.userId);

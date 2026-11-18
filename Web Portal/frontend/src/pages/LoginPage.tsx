@@ -191,6 +191,8 @@ export function LoginPage() {
       }
       setSession(res.data, { remember: keepSignedIn });
     } catch (e) {
+      // 1.24: an administrator's code alone never signs in: a reload mustn't come back to this step.
+      if (e instanceof ApiError && e.code === 'ADMIN_PASSWORD_AND_CODE') forgetCodeStep();
       fail(e);
     } finally {
       setLoading(false);
@@ -230,6 +232,7 @@ export function LoginPage() {
 
   function leaveChallenge(reason?: string) {
     setChallenge(null);
+    setTrustChoice(false);
     clearMessages();
     if (reason) setError(reason);
   }

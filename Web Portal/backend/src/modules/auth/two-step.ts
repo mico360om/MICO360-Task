@@ -119,11 +119,10 @@ export function createTwoStep(deps: TwoStepDeps) {
     const version = user.tokenVersion ?? 0;
     await deps.store.create({ id, userId: user.id, sessionVersion: version, label, createdAt: at, expiresAt });
     const value = signToken({ typ: 'trusted-browser', sub: user.id, tb: id, ver: version }, deps.key, TRUST_MS / 1000);
-    try {
-      await deps.notifyTrusted?.({ id: user.id, email: user.email }, { browser: label, at });
-    } catch (err) {
-      deps.logger?.warn('the new trusted browser notice could not be sent', { userId: user.id, error: err instanceof Error ? err.message : String(err) });
-    }
+    // Review fix: the notice never holds up the sign-in (a slow mail provider); a failure is only logged.
+    void Promise.resolve()
+      .then(() => deps.notifyTrusted?.({ id: user.id, email: user.email }, { browser: label, at }))
+      .catch((err: unknown) => deps.logger?.warn('the new trusted browser notice could not be sent', { userId: user.id, error: err instanceof Error ? err.message : String(err) }));
     return { value, maxAgeSeconds: TRUST_MS / 1000, expiresAt, label };
   }
 

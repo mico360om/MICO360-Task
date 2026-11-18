@@ -98,7 +98,7 @@ export function TwoStepOffBanner({ frameClass = '' }: { frameClass?: string }) {
   if (!isAdmin || !s || s.on !== false) return null;
   return (
     <div className={frameClass}>
-      <div role="alert" data-two-step-off className="mt-3 flex items-start gap-3 rounded-xl border border-danger/50 bg-danger-soft px-3 py-2 text-sm text-ink">
+      <div role="status" data-two-step-off className="mt-3 flex items-start gap-3 rounded-xl border border-danger/50 bg-danger-soft px-3 py-2 text-sm text-ink">
         <svg className="mt-0.5 flex-none text-danger" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6l8-3z" />
           <path d="M12 8v5M12 16.5v.01" />
