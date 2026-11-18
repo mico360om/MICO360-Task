@@ -28,6 +28,19 @@ describe('MyTasksPage', () => {
     await waitFor(() => expect(screen.getByText('Prepare report')).toBeInTheDocument());
   });
 
+  it('has no New Task button of its own: the top bar has the one (owner, 18 Nov)', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={qc}>
+        <MemoryRouter>
+          <MyTasksPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByText('Prepare report')).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: /new task/i })).toBeNull();
+  });
+
   it('shows each task’s project with the project’s picture', async () => {
     vi.stubGlobal('fetch', vi.fn(async (url: string) => String(url).endsWith('/projects')
       ? json({ data: [{ id: 'p1', code: 'MICO', name: 'MICO Platform', color: '#1E5A8B', icon: 'globe', status: 'ACTIVE' }] })
