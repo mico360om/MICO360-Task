@@ -242,6 +242,26 @@ describe('one-line rows', () => {
     expect(open).not.toHaveBeenCalled();
   });
 
+  it('review I2: after Reschedule moves a row to another group, focus is back on its ⋯; after a tick, on the next row', async () => {
+    current = answer([late(1), late(2)]);
+    show();
+    await menu('RIG-1: Late 1', 'Reschedule…');
+    const later = { ...current, items: [late(2), { ...late(1), reason: { code: 'due-today' as const }, chips: ['today' as const] }] };
+    current = later;
+    await userEvent.click(within(screen.getByRole('dialog', { name: 'Reschedule RIG-1' })).getByRole('button', { name: /^Today/ }));
+    await waitFor(() => expect(within(screen.getByRole('list', { name: /^Today/ })).getByText('Late 1')).toBeInTheDocument());
+    await waitFor(() => expect(document.activeElement).toHaveAccessibleName('More actions for RIG-1: Late 1'));
+    const f = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    const base = f.getMockImplementation() as (input: string, init?: RequestInit) => Promise<Response>;
+    f.mockImplementation(async (input: string, init?: RequestInit) => {
+      const out = await base(input, init);
+      if (String(input).endsWith('/move')) current = answer([late(2)]);
+      return out;
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'Complete RIG-1: Late 1' }));
+    await waitFor(() => expect(document.activeElement).toHaveAccessibleName('Complete RIG-2: Late 2'));
+  });
+
   it('a task waiting on another: the tick is disabled and says why; "Blocked by RIG-1" opens that task', async () => {
     current = answer([taskRow({ id: 'task:t2', task: task({ id: 't2', key: 'RIG-7', title: 'Valve', blockers: [{ id: 'b1', key: 'RIG-1' }], can: { complete: false, reschedule: true, assign: false, approve: false } }), reason: { code: 'blocked-by', blockers: [{ id: 'b1', key: 'RIG-1' }] }, chips: ['blocked'], group: 8 })]);
     const open = show();
@@ -250,6 +270,8 @@ describe('one-line rows', () => {
     expect(tick).toHaveAccessibleDescription(/Blocked by RIG-1/);
     await userEvent.click(tick);
     expect(sent('PATCH', /\/move$/)).toHaveLength(0);
+    // A tap says why (a touch screen has no tooltip).
+    expect(within(row('task:t2')).getByRole('alert')).toHaveTextContent(/Blocked by RIG-1/);
     await userEvent.click(within(row('task:t2')).getByRole('button', { name: /RIG-1/ }));
     expect(open).toHaveBeenCalledWith('b1', expect.any(Array));
   });
@@ -488,7 +510,7 @@ describe('Overdue group: Move all to today and Reschedule all…', () => {
     await screen.findByText('Late 1');
     await userEvent.click(screen.getByRole('button', { name: 'Move all to today' }));
     await userEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Move to today' }));
-    expect(await screen.findByText('Moved 1 task to today. 1 couldn’t be moved.')).toBeInTheDocument();
+    expect(await screen.findByText('Moved 1 task to today. 1 couldn’t be moved. You can’t change it.')).toBeInTheDocument();
   });
 
   it('Reschedule all… picks a date, then asks', async () => {
@@ -502,6 +524,29 @@ describe('Overdue group: Move all to today and Reschedule all…', () => {
     await userEvent.click(within(confirm).getByRole('button', { name: 'Move to Fri 20 Nov' }));
     await waitFor(() => expect(sent('POST', /\/tasks\/bulk$/)[0]?.body).toEqual({ taskIds: ['t1', 't3'], action: { type: 'dueDate', mode: 'set', date: '2026-11-20' } }));
     expect(await screen.findByText('Moved 2 tasks to Fri 20 Nov.')).toBeInTheDocument();
+  });
+
+  it('review I3: in the Overdue chip too, Move all leaves the team’s late tasks alone', async () => {
+    current = answer([late(1), taskRow({ id: 'task:t7', reason: { code: 'team-overdue', days: 4 }, chips: ['overdue', 'team'], group: 6, task: task({ id: 't7', key: 'RIG-7', title: 'Theirs', assignees: [{ id: 'o', name: 'Omar Ahmed' }] }) })], { manager: true });
+    show();
+    await screen.findByText('Theirs');
+    await userEvent.click(within(screen.getByRole('group', { name: 'Show priorities by reason' })).getByRole('button', { name: /^Overdue/ }));
+    expect(row('task:t7')).not.toBeNull();
+    await userEvent.click(screen.getByRole('button', { name: 'Move all to today' }));
+    await userEvent.click(within(screen.getByRole('alertdialog', { name: 'Move 1 task to today?' })).getByRole('button', { name: 'Move to today' }));
+    await waitFor(() => expect(sent('POST', /\/tasks\/bulk$/)[0]?.body).toMatchObject({ taskIds: ['t1'] }));
+  });
+
+  it('review I4: an Undo that ran out of time says so (not "changed since")', async () => {
+    current = answer([late(1), late(3)]);
+    refuse = /POST .*\/tasks\/bulk\/bulk-1\/undo$/;
+    show();
+    await screen.findByText('Late 1');
+    await userEvent.click(screen.getByRole('button', { name: 'Move all to today' }));
+    await userEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Move to today' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Undo' }));
+    expect(await screen.findByText(/2 tasks stayed: You do not have permission to do that\./)).toBeInTheDocument();
+    expect(screen.queryByText(/changed since/)).toBeNull();
   });
 
   it('nothing the person may move: no group actions', async () => {

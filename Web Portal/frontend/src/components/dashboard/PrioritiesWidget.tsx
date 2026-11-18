@@ -22,7 +22,7 @@ import {
   rowsFor,
   SHOWN_FIRST,
 } from '../../lib/dashboard-priorities';
-import { bulkConfirmText, dueLabel, GROUP_EMPTY, GROUP_FIRST, groupRows, movableOverdue, rowName, type PriorityGroupId } from '../../lib/dashboard-priority-groups';
+import { bulkConfirmText, dueLabel, GROUP_EMPTY, GROUP_FIRST, groupOf, groupRows, movableOverdue, rowName, type PriorityGroupId } from '../../lib/dashboard-priority-groups';
 import { dayText } from '../../lib/day-words';
 import { todayKey } from '../../lib/due-date';
 import { useCompanyTimeZone } from '../../lib/company-clock';
@@ -30,7 +30,7 @@ import { useCompanyWeekStart } from '../../lib/useDatePrefs';
 import { usePrioritiesRealtime } from './usePrioritiesRealtime';
 import { useNotificationRealtime } from '../../lib/useNotificationRealtime';
 import { relativeTime } from '../../lib/relative-time';
-import { TOUCH_TALL } from '../../lib/touch';
+import { TOUCH_SQUARE, TOUCH_TALL } from '../../lib/touch';
 import { DENSE_FACE, DENSE_STACK } from '../../lib/density-tokens';
 import { TaskKey, TaskKeyButton } from '../TaskKey';
 import { ProjectAvatar } from '../ProjectAvatar';
@@ -53,8 +53,8 @@ const ACTION = `${ACTION_SHAPE} border-line bg-surface text-ink hover:border-bra
 const ACTION_MAIN = `${ACTION_SHAPE} border-brand bg-brand text-white hover:bg-brand-2`;
 const POPOVER = 'rounded-xl border border-line bg-surface shadow-lift';
 const MENU_ITEM = `flex w-full items-center justify-between gap-4 rounded-lg px-3 py-2 text-start text-sm text-ink hover:bg-ground focus-visible:bg-ground disabled:opacity-60 ${TOUCH_TALL}`;
-/** The tick and the ⋯ button: 44 × 44 on a phone, 32 × 32 from a tablet up. */
-const ROW_SQUARE = 'h-11 w-11 md:h-8 md:w-8';
+/** The tick and the ⋯ button: 44 × 44 in a narrow card (a phone, a Small widget) and on any touch screen; 32 × 32 in a wide card. */
+const ROW_SQUARE = `h-11 w-11 [@container(min-width:44rem)]:h-8 [@container(min-width:44rem)]:w-8 ${TOUCH_SQUARE}`;
 
 /**
  * 1.23.5: the list a widget shows — the Dashboard's My Priorities Today (the default), or a project's Next
@@ -95,6 +95,8 @@ const DASHBOARD_LIST: PriorityListConfig = {
 
 interface Notice {
   text: string;
+  /** How long it stays (MergedToast's default when absent). */
+  ms?: number;
   undo?: () => Promise<string>;
   openTaskId?: string;
 }
@@ -149,6 +151,9 @@ export function PrioritiesWidget({ onOpenTask, list }: { onOpenTask: (taskId: st
   const [sending, setSending] = useState<PriorityTask | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [asking, setAsking] = useState<BulkMove | null>(null);
+  /** Where focus goes back after a row's action: the row (it may now be in another group), else its neighbour. */
+  const refocus = useRef<{ id: string; order: string[] } | null>(null);
+  const listRef = useRef<HTMLElement>(null);
 
   /** Read the list again: `own` after the person's own change (the server's 30-second copy is skipped). */
   const refresh = useCallback(
@@ -184,9 +189,13 @@ export function PrioritiesWidget({ onOpenTask, list }: { onOpenTask: (taskId: st
   /** What shows: the groups (All), one chip's rows, or the flat list (a project's Next actions). */
   const blocks = useMemo(() => {
     if (!grouped) return null;
-    if (chip !== 'all') return [{ id: chip as PriorityGroupId, label: CHIP_LABEL[chip], rows: rowsFor(rows, chip, true), empty: PRIORITIES_CHIP_EMPTY }];
-    return groupRows(rows, { manager: !!data?.manager }).map((g) => ({ ...g, empty: GROUP_EMPTY[g.id] }));
-  }, [grouped, chip, rows, data?.manager]);
+    if (chip !== 'all') {
+      const shownRows = rowsFor(rows, chip, true);
+      // The chip's own number (the server's; more than the loaded rows when the list is cut at 300).
+      return [{ id: chip as PriorityGroupId, label: CHIP_LABEL[chip], rows: shownRows, count: data && data.total > data.items.length ? Math.max(shownRows.length, counts?.[chip] ?? 0) : shownRows.length, empty: PRIORITIES_CHIP_EMPTY }];
+    }
+    return groupRows(rows, { manager: !!data?.manager }).map((g) => ({ ...g, count: g.rows.length, empty: GROUP_EMPTY[g.id] }));
+  }, [grouped, chip, rows, data, counts]);
   const flat = grouped ? [] : rowsFor(rows, chip, true).slice(0, showAll ? undefined : first);
   const shownOf = (id: string) => groupShown[id] ?? GROUP_FIRST;
   const visible = blocks ? blocks.flatMap((b) => b.rows.slice(0, shownOf(b.id))) : flat;
@@ -194,6 +203,7 @@ export function PrioritiesWidget({ onOpenTask, list }: { onOpenTask: (taskId: st
 
   /** Run one quick action: the row leaves at once when it is done with, the list is read again, the notice says what happened. */
   async function act(row: PriorityRow, work: () => Promise<Notice>, opts: { leaves: boolean }) {
+    refocus.current = { id: row.id, order: visible.map((r) => r.id) };
     setBusy(row.id);
     setProblem(null);
     if (opts.leaves) setGone((g) => new Set([...g, row.id]));
@@ -396,28 +406,18 @@ export function PrioritiesWidget({ onOpenTask, list }: { onOpenTask: (taskId: st
   async function moveAll(m: BulkMove) {
     setBusy('bulk');
     setProblem(null);
-    const viaBulk = m.movable.filter((r) => r.kind === 'task' && r.task && !r.task.recurrenceRule);
-    const oneByOne = m.movable.filter((r) => !viaBulk.includes(r));
+    // Only rows still on the list (someone may have finished or moved one while the question was open).
+    const still = new Set(rows.map((r) => r.id));
+    const movable = m.movable.filter((r) => still.has(r.id));
+    const viaBulk = movable.filter((r) => r.kind === 'task' && r.task && !r.task.recurrenceRule);
+    const oneByOne = movable.filter((r) => !viaBulk.includes(r));
     let moved = 0;
     let failed = 0;
     let why: string | null = null;
-    let bulkUndo: string | null = null;
+    let bulkUndo: { id: string; until: string } | null = null;
+    let bulkMoved = 0;
     const backs: (() => Promise<void>)[] = [];
-    if (viaBulk.length) {
-      try {
-        const res = await bulkApi(apiClient).run(
-          viaBulk.map((r) => r.task!.id),
-          { type: 'dueDate', mode: 'set', date: m.day },
-        );
-        moved += res.changed.length;
-        failed += res.skipped.length;
-        why ??= res.skipped[0]?.reason ?? null;
-        bulkUndo = res.undo?.id ?? null;
-      } catch (e) {
-        failed += viaBulk.length;
-        why ??= messageOf(e, 'That didn’t work. Please try again.');
-      }
-    }
+    // One by one first, so the bulk change (whose Undo lasts 30 seconds) is the last step before the notice.
     for (const r of oneByOne) {
       try {
         backs.push(await moveOne(r, m.day));
@@ -427,25 +427,46 @@ export function PrioritiesWidget({ onOpenTask, list }: { onOpenTask: (taskId: st
         why ??= messageOf(e, 'That didn’t work. Please try again.');
       }
     }
+    if (viaBulk.length) {
+      try {
+        const res = await bulkApi(apiClient).run(
+          viaBulk.map((r) => r.task!.id),
+          { type: 'dueDate', mode: 'set', date: m.day },
+        );
+        bulkMoved = res.changed.length;
+        moved += res.changed.length;
+        failed += res.skipped.length;
+        why ??= res.skipped[0]?.reason ?? null;
+        bulkUndo = res.undo;
+      } catch (e) {
+        failed += viaBulk.length;
+        why ??= messageOf(e, 'That didn’t work. Please try again.');
+      }
+    }
     const [one, many] = m.allTasks ? ['task', 'tasks'] : ['item', 'items'];
     const when = m.day === today ? 'today' : dayText(m.day, { weekday: 'short', year: m.day.slice(0, 4) !== today.slice(0, 4) });
+    const reason = why ? ` ${why.replace(/\.?$/, '.')}` : '';
     const text =
-      moved > 0 ? `Moved ${plural(moved, one, many)} to ${when}.${failed ? ` ${failed} couldn’t be moved.` : ''}` : `Nothing was moved.${why ? ` ${why}` : ''}`;
+      moved > 0 ? `Moved ${plural(moved, one, many)} to ${when}.${failed ? ` ${failed} couldn’t be moved.${reason}` : ''}` : `Nothing was moved.${reason}`;
     setAsking(null);
     setNotice({
       text,
+      // While the bulk change can still be undone (the server keeps it 30 seconds).
+      ms: bulkUndo ? Math.max(3_000, Math.min(12_000, Date.parse(bulkUndo.until) - Date.now() - 1_000)) : undefined,
       undo:
         bulkUndo || backs.length
           ? async () => {
               let back = 0;
               let left = 0;
+              let said = '';
               if (bulkUndo) {
                 try {
-                  const u = await bulkApi(apiClient).undo(bulkUndo);
+                  const u = await bulkApi(apiClient).undo(bulkUndo.id);
                   back += u.restored.length;
                   left += u.skipped.length;
-                } catch {
-                  left += moved - backs.length;
+                } catch (e) {
+                  // Ran out of time (or the network): say so — they weren't changed by anyone.
+                  said = ` ${plural(bulkMoved, one, many)} stayed: ${messageOf(e, 'Undo is no longer available.')}`;
                 }
               }
               for (const b of backs) {
@@ -456,7 +477,7 @@ export function PrioritiesWidget({ onOpenTask, list }: { onOpenTask: (taskId: st
                   left += 1;
                 }
               }
-              return `Put back ${plural(back, one, many)}.${left ? ` ${left} changed since — left as ${left === 1 ? 'it is' : 'they are'}.` : ''}`;
+              return `Put back ${plural(back, one, many)}.${left ? ` ${left} changed since — left as ${left === 1 ? 'it is' : 'they are'}.` : ''}${said}`;
             }
           : undefined,
     });
@@ -476,6 +497,8 @@ export function PrioritiesWidget({ onOpenTask, list }: { onOpenTask: (taskId: st
       busy={busy === row.id}
       locked={busy !== null}
       problem={problem?.id === row.id ? problem.text : null}
+      showProject={grouped}
+      onExplain={(text) => setProblem({ id: row.id, text })}
       onOpenTask={(id, at) => (at ? onOpenTask(id, taskIds, at) : onOpenTask(id, taskIds))}
       onComplete={(t) => void complete(row, t)}
       onReschedule={(t, day) => void reschedule(row, t, day)}
@@ -492,11 +515,32 @@ export function PrioritiesWidget({ onOpenTask, list }: { onOpenTask: (taskId: st
     />
   );
 
+  // After a row's action (the list read again): a row that moved to another group, or left, took the focus with
+  // it — put it back on that row's ⋯, else on the next row's tick (the one before at the end), never the page.
+  useEffect(() => {
+    const f = refocus.current;
+    const root = listRef.current;
+    if (!f || busy !== null || !root) return;
+    refocus.current = null;
+    const at = document.activeElement;
+    if (at && at !== document.body && at.isConnected) return;
+    const rowEl = (id: string) => root.querySelector<HTMLElement>(`[data-priority-row="${CSS.escape(id)}"]`);
+    const same = rowEl(f.id)?.querySelector<HTMLElement>('[data-row-more]');
+    if (same) return void same.focus();
+    const i = f.order.indexOf(f.id);
+    for (const id of [...f.order.slice(i + 1), ...f.order.slice(0, Math.max(0, i)).reverse()]) {
+      const el = rowEl(id);
+      const target = el?.querySelector<HTMLElement>('[data-row-tick]') ?? el?.querySelector<HTMLElement>('[data-row-more]');
+      if (target) return void target.focus();
+    }
+    root.querySelector<HTMLElement>('h2')?.focus();
+  });
+
   const total = data?.total ?? 0;
   return (
-    <section className="card card-pad" aria-labelledby={cfg.headingId} data-testid={cfg.testId}>
+    <section ref={listRef} className="card card-pad" aria-labelledby={cfg.headingId} data-testid={cfg.testId}>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <h2 id={cfg.headingId} className="font-display text-base font-semibold text-ink">
+        <h2 id={cfg.headingId} tabIndex={-1} className="font-display outline-none text-base font-semibold text-ink">
           {cfg.title}
           {data ? <span className="ms-2 rounded-full bg-brand/10 px-2 py-0.5 text-xs font-semibold text-brand">{total}</span> : null}
         </h2>
@@ -543,20 +587,22 @@ export function PrioritiesWidget({ onOpenTask, list }: { onOpenTask: (taskId: st
           {cfg.empty}
         </p>
       ) : blocks ? (
-        <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-4 [container-type:inline-size]">
           {blocks.map((b) => {
             const hid = `${cfg.headingId}-${b.id}`;
             const shown = shownOf(b.id);
             const n = b.rows.length;
+            // Move all: the person's own late work only (in the Overdue chip too, never the team's).
+            const late = b.rows.filter((r) => groupOf(r) === 'overdue');
             const set = (k: number) => setGroupShown((g) => ({ ...g, [b.id]: k }));
             return (
-              <section key={b.id} aria-labelledby={hid} data-priority-group={b.id}>
+              <div key={b.id} data-priority-group={b.id}>
                 <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line pb-1.5">
                   <h3 id={hid} className="text-xs font-semibold uppercase tracking-wide text-ink-2">
-                    {b.label} <span className={`ms-1 rounded-full px-1.5 py-0.5 text-[11px] font-semibold ${b.id === 'overdue' && n > 0 ? 'bg-danger-soft text-danger' : 'bg-ground text-ink-2'}`}>{n}</span>
+                    {b.label} <span className={`ms-1 rounded-full px-1.5 py-0.5 text-[11px] font-semibold ${b.id === 'overdue' && n > 0 ? 'bg-danger-soft text-danger' : 'bg-ground text-ink-2'}`}>{b.count}</span>
                   </h3>
                   {b.id === 'overdue' ? (
-                    <OverdueActions rows={b.rows} today={today} weekStart={weekStart} disabled={busy !== null} onAsk={(day) => setAsking({ day, ...movableOverdue(b.rows) })} />
+                    <OverdueActions rows={late} today={today} weekStart={weekStart} disabled={busy !== null} onAsk={(day) => setAsking({ day, ...movableOverdue(late) })} />
                   ) : null}
                 </div>
                 {n === 0 ? (
@@ -584,7 +630,7 @@ export function PrioritiesWidget({ onOpenTask, list }: { onOpenTask: (taskId: st
                     )}
                   </div>
                 ) : null}
-              </section>
+              </div>
             );
           })}
           {total > (data.items.length ?? 0) ? <p className="text-xs text-ink-2">Showing the {data.items.length} most urgent of {total}.</p> : null}
@@ -592,7 +638,7 @@ export function PrioritiesWidget({ onOpenTask, list }: { onOpenTask: (taskId: st
       ) : flat.length === 0 ? (
         <p className="py-4 text-center text-sm text-ink-2">{PRIORITIES_CHIP_EMPTY}</p>
       ) : (
-        <ul className="divide-y divide-line" aria-label={`${CHIP_LABEL[chip]} priorities`}>
+        <ul className="divide-y divide-line [container-type:inline-size]" aria-label={`${CHIP_LABEL[chip]} priorities`}>
           {flat.map(renderRow)}
         </ul>
       )}
@@ -650,6 +696,7 @@ export function PrioritiesWidget({ onOpenTask, list }: { onOpenTask: (taskId: st
           onOpen={notice.openTaskId ? () => onOpenTask(notice.openTaskId!) : undefined}
           onUndo={notice.undo ? () => void undo(notice) : undefined}
           onDismiss={() => setNotice(null)}
+          ms={notice.ms}
         />
       ) : null}
     </section>
@@ -708,6 +755,10 @@ interface ItemProps {
   /** Another row's action is running: buttons wait. */
   locked: boolean;
   problem: string | null;
+  /** The project on each row (not on one project's own Next actions). */
+  showProject: boolean;
+  /** A tap on a tick that can't be used: say why (a touch screen has no tooltip). */
+  onExplain: (text: string) => void;
   onOpenTask: (taskId: string, at?: { item?: string }) => void;
   onComplete: (t: PriorityTask) => void;
   onReschedule: (t: PriorityTask, day: string) => void;
@@ -735,7 +786,7 @@ function completeBlock(t: PriorityTask): string | null {
  * One row, on one line (two on a phone): the tick, the task number and title (and Urgent / High), its
  * project, due day and people, and one ⋯ menu. A click on the row (not on a control) opens it, as Open does.
  */
-function PriorityItem({ row, today, weekStart, busy, locked, problem, onOpenTask, onComplete, onReschedule, onAssign, onApprove, onSendBack, onItemDone, onItemReschedule, onStepTick, onStepReschedule }: ItemProps) {
+function PriorityItem({ row, today, weekStart, busy, locked, problem, showProject, onExplain, onOpenTask, onComplete, onReschedule, onAssign, onApprove, onSendBack, onItemDone, onItemReschedule, onStepTick, onStepReschedule }: ItemProps) {
   const navigate = useNavigate();
   const t = row.task;
   const a = row.actionItem;
@@ -756,11 +807,11 @@ function PriorityItem({ row, today, weekStart, busy, locked, problem, onOpenTask
     row.kind === 'approval' ? (
       <span aria-hidden="true" className={square} />
     ) : t ? (
-      <Tick label={`Complete ${name}`} reason={completeBlock(t)} waiting={disabled} onTick={() => onComplete(t)} />
+      <Tick label={`Complete ${name}`} reason={completeBlock(t)} waiting={disabled} onTick={() => onComplete(t)} onExplain={onExplain} />
     ) : a ? (
-      <Tick label={`Mark “${a.description}” done`} reason={a.can.done ? null : 'You can’t mark this one done.'} waiting={disabled} onTick={onItemDone} />
+      <Tick label={`Mark “${a.description}” done`} reason={a.can.done ? null : 'You can’t mark this one done.'} waiting={disabled} onTick={onItemDone} onExplain={onExplain} />
     ) : c ? (
-      <Tick label={`Tick “${c.text}”`} reason={c.can.tick ? null : 'It’s ticked when all its sub-items are.'} waiting={disabled} onTick={onStepTick} />
+      <Tick label={`Tick “${c.text}”`} reason={c.can.tick ? null : 'It’s ticked when all its sub-items are.'} waiting={disabled} onTick={onStepTick} onExplain={onExplain} />
     ) : (
       <span aria-hidden="true" className={square} />
     );
@@ -808,10 +859,10 @@ function PriorityItem({ row, today, weekStart, busy, locked, problem, onOpenTask
     ) : null;
 
   return (
-    <li className={`flex items-start gap-1 py-0.5 md:items-center ${open ? 'cursor-pointer rounded-lg hover:bg-ground/60' : ''}`} data-priority-row={row.id} data-kind={row.kind} onClick={onRowClick}>
+    <li className={`flex items-start gap-1 py-0.5 [@container(min-width:44rem)]:items-center ${open ? 'cursor-pointer rounded-lg hover:bg-ground/60' : ''}`} data-priority-row={row.id} data-kind={row.kind} onClick={onRowClick}>
       {tickBox}
-      <div className="min-w-0 flex-1 md:flex md:items-center md:gap-3">
-        <div data-row-line="1" className="flex min-h-11 min-w-0 items-center gap-2 md:min-h-8 md:flex-1">
+      <div className="min-w-0 flex-1 [@container(min-width:44rem)]:flex [@container(min-width:44rem)]:items-center [@container(min-width:44rem)]:gap-3">
+        <div data-row-line="1" className="flex min-h-11 min-w-0 items-center gap-2 [@container(min-width:44rem)]:min-h-8 [@container(min-width:44rem)]:flex-1">
           {title}
           {priority === 'URGENT' || priority === 'HIGH' ? (
             <span className="flex-none">
@@ -825,22 +876,22 @@ function PriorityItem({ row, today, weekStart, busy, locked, problem, onOpenTask
             </button>
           ) : null}
         </div>
-        <div data-row-line="2" className="-mt-1.5 flex min-w-0 items-center gap-x-3 pb-1.5 text-xs text-ink-2 md:mt-0 md:flex-none md:pb-0">
-          {note ? <span className="flex min-w-0 shrink md:max-w-[14rem]">{note}</span> : null}
-          {t ? (
-            <span className={`inline-flex min-w-0 items-center gap-1 md:w-40 md:flex-none ${note ? 'max-md:flex-none' : 'shrink'}`}>
+        <div data-row-line="2" className="-mt-1.5 flex min-w-0 items-center gap-x-3 pb-1.5 text-xs text-ink-2 [@container(min-width:44rem)]:mt-0 [@container(min-width:44rem)]:flex-none [@container(min-width:44rem)]:pb-0">
+          {note ? <span className="flex min-w-0 shrink [@container(min-width:44rem)]:max-w-[14rem]">{note}</span> : null}
+          {t && showProject ? (
+            <span className={`inline-flex min-w-0 items-center gap-1 [@container(min-width:44rem)]:w-40 [@container(min-width:44rem)]:flex-none ${note ? '[@container(max-width:43.99rem)]:flex-none' : 'shrink'}`}>
               <ProjectAvatar project={t.project} size="xs" />
               {/* A phone with a note beside it: the project's picture only (its name is still read out). */}
-              <bdi className={`truncate ${note ? 'max-md:sr-only' : ''}`} title={t.project.name}>
+              <bdi className={`truncate ${note ? '[@container(max-width:43.99rem)]:sr-only' : ''}`} title={t.project.name}>
                 {t.project.name}
               </bdi>
             </span>
           ) : null}
-          {due ? <span className={`flex-none md:w-24 ${due.late ? 'font-semibold text-danger' : 'text-ink-2'}`}>{due.text}</span> : null}
+          {due ? <span className={`flex-none [@container(min-width:44rem)]:w-24 ${due.late ? 'font-semibold text-danger' : 'text-ink-2'}`}>{due.text}</span> : null}
           {t ? <Faces people={t.assignees} /> : null}
         </div>
         {problem ? (
-          <p role="alert" className="pb-1 text-xs font-medium text-danger md:basis-full">
+          <p role="alert" className="pb-1 text-xs font-medium text-danger [@container(min-width:44rem)]:basis-full">
             {problem}
           </p>
         ) : null}
@@ -877,7 +928,7 @@ function PriorityItem({ row, today, weekStart, busy, locked, problem, onOpenTask
 }
 
 /** The tick: completes the task (marks an action item done, ticks a checklist item); when it can't, it says why. */
-function Tick({ label, reason, waiting, onTick }: { label: string; reason: string | null; waiting: boolean; onTick: () => void }) {
+function Tick({ label, reason, waiting, onTick, onExplain }: { label: string; reason: string | null; waiting: boolean; onTick: () => void; onExplain: (text: string) => void }) {
   const id = useId();
   const off = !!reason || waiting;
   return (
@@ -888,8 +939,10 @@ function Tick({ label, reason, waiting, onTick }: { label: string; reason: strin
         aria-disabled={off || undefined}
         aria-describedby={reason ? id : undefined}
         title={reason ?? undefined}
+        data-row-tick
         onClick={() => {
-          if (!off) onTick();
+          if (reason) onExplain(reason);
+          else if (!off) onTick();
         }}
         className={`group/tick grid flex-none place-items-center rounded-full ${ROW_SQUARE} ${off ? 'cursor-not-allowed' : ''}`}
       >
@@ -915,10 +968,10 @@ function Tick({ label, reason, waiting, onTick }: { label: string; reason: strin
 
 /** Up to three faces, then "+2"; the names for screen readers. */
 function Faces({ people }: { people: { id: string; name: string }[] }) {
-  if (people.length === 0) return <span className="flex-none text-ink-2 md:w-[4.25rem]">Unassigned</span>;
+  if (people.length === 0) return <span className="flex-none text-ink-2 [@container(min-width:44rem)]:w-[4.25rem]">Unassigned</span>;
   const shown = people.slice(0, 3);
   return (
-    <span className="inline-flex flex-none items-center md:w-[4.25rem]">
+    <span className="inline-flex flex-none items-center [@container(min-width:44rem)]:w-[4.25rem]">
       <span aria-hidden="true" className={`flex -space-x-1.5 ${DENSE_STACK}`}>
         {shown.map((p) => (
           <Avatar key={p.id} name={p.name} size="sm" dense />
@@ -969,6 +1022,7 @@ function MoreMenu({
         ref={anchor}
         type="button"
         aria-label={`More actions for ${name}`}
+        data-row-more
         aria-haspopup="dialog"
         aria-expanded={view !== 'closed'}
         onClick={() => setView((v) => (v === 'closed' ? 'menu' : 'closed'))}
