@@ -315,6 +315,7 @@ import { createMapStore } from './modules/error-log/stack';
 import { hkdfSync } from 'node:crypto';
 import { createSignInChallenges } from './modules/auth/sign-in-challenge';
 import { createTwoStep, noticeTime } from './modules/auth/two-step';
+import { createAdminSignOutOnce } from './modules/auth/admin-sign-out-once';
 import { createPrismaTrustedBrowserStore } from './modules/auth/prisma-trusted-browser-store';
 import { createPrismaSignInChallengeStore, endEveryCode } from './modules/auth/prisma-sign-in-challenge-store';
 import { createEmailVerification, createPrismaVerificationRepo } from './modules/auth/email-verification';
@@ -3225,6 +3226,20 @@ async function main(): Promise<void> {
       if (count) logger.info('Bulk changes: Undo records past their window removed', { rows: count });
     }).catch(sweepFailed('bulk-undo-prune', 'bulk change clean-up'));
   jobs.every(24 * 60 * 60 * 1000, runBulkPrune);
+
+  // 1.24.0 (owner, 18 Nov): two-step sign-in starts with every administrator signing in again — their sessions
+  // from before end ONCE (session version raised, refresh tokens revoked; recorded so it never repeats). Run
+  // before the server takes requests, so a 1.24.0 sign-in is never ended by it. If the database is away now,
+  // it is tried again every 10 minutes until it is recorded (staff, managers and clients are never touched).
+  const adminSignOutOnce = createAdminSignOutOnce({ prisma });
+  const runAdminSignOut = async () => {
+    const r = await adminSignOutOnce.run();
+    if (r.already) return;
+    for (const id of r.userIds) authGuard.forgetUser(id);
+    logger.job('two-step sign-in').info('1.24.0: every administrator signs in again (password + code) — their earlier sessions ended once', { admins: r.userIds.length });
+  };
+  await runAdminSignOut().catch((err) => logger.job('two-step sign-in').warn('1.24.0 administrator sign-out could not run yet; tried again in 10 minutes', { error: err instanceof Error ? err.message : String(err) }));
+  jobs.every(10 * 60 * 1000, () => runAdminSignOut().catch(sweepFailed('admin-sign-out-124', 'ending the administrators’ sessions from before 1.24.0')), { name: 'admin-sign-out-124' });
 
   await app.listen({ port: env.PORT, host: env.HOST });
   logger.info('MICO360 Tasks API listening', { port: env.PORT, realtime: true, env: env.NODE_ENV });
