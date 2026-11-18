@@ -414,7 +414,7 @@ export function DashboardPage() {
     <div className="flex flex-col gap-6">
       {/* Welcome: one compact band — the greeting on the left, the ways in on the right. */}
       <div
-        className={`relative overflow-hidden rounded-2xl ${appreciation ? '' : 'bg-brand-gradient '}px-5 py-4 text-white shadow-brand animate-fade-in-up sm:px-6`}
+        className={`relative overflow-hidden rounded-2xl ${appreciation ? 'shadow-soft ' : 'bg-brand-gradient shadow-brand '}px-5 py-4 text-white animate-fade-in-up sm:px-6`}
         {...(appreciation ? { style: { backgroundImage: themeGradient(appreciation.theme) }, 'data-appreciation-theme': appreciation.theme } : {})}
       >
         <div className="pointer-events-none absolute -right-10 -top-16 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
