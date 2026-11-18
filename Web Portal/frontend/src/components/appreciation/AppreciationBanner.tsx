@@ -69,7 +69,7 @@ export function AppreciationBanner({ a, more, onAccept, problem }: { a: ApiAppre
                 await onAccept(a.id);
                 setBusy(false);
               }}
-              className="inline-flex min-h-11 items-center rounded-xl bg-white px-4 py-2 text-sm font-semibold text-ink shadow-soft transition-all hover:-translate-y-0.5 hover:shadow-lift focus-visible:outline-white disabled:opacity-70"
+              className="inline-flex !min-h-[44px] items-center rounded-xl bg-white px-4 py-2 text-sm font-semibold text-[#1F1A19] shadow-soft transition-all hover:-translate-y-0.5 hover:shadow-lift focus-visible:outline-white disabled:opacity-70"
             >
               Accept
             </button>

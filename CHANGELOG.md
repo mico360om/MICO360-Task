@@ -14,6 +14,11 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### New features
+- Employee Appreciation: administrators and Appreciation managers (a new switch in User Management) thank people on a day they choose. Admin → Appreciations: pick one or more people (search and a company filter), a template, edit the words, pick today or a later day, preview, Schedule. Six built-in templates (Outstanding Performance, Great Teamwork, Excellent Work, Innovation, Dedication, Employee of the Day) with {name}, {company} and {date}, a colour theme, an icon and an animation (none, confetti or a gentle shimmer); built-ins are kept as they are and changes are saved as a copy. Appreciation managers reach the people of their own companies only.
+- On the day (00:00–23:59 company time) the person's Dashboard takes the template's colours with a banner showing the message and who sent it, and a one-time popup with the company logo asks them to Accept. Once accepted or closed it never shows again on any device; closing leaves Accept in the banner. Accepting works offline too and is sent when back online. Everything goes back to normal at midnight. A bell notice says "You've been appreciated"; email is off unless turned on in Notification & Scheduling.
+- Scheduled & history: every appreciation with its status (Scheduled, Active, Accepted, Expired, Cancelled), filters by person, status, template and dates, Edit or Cancel until the day starts, and Export to Excel. Everyone has "My appreciations" in the account menu. Sending, edits, cancellations, acceptances, expiries, templates and the permission are in the Audit log.
+
 ## [1.23.37] - 2026-11-18
 
 ### Improvements
