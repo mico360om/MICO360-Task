@@ -21,6 +21,11 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 ### Security
 - A task or chat file opens only when the company in its folder is one the person may see (or they are an administrator), on top of the existing private file link checks. File addresses are checked strictly: anything that isn't exactly one of the server's own file names (folders that climb out, backslashes, odd characters) is refused.
 
+## [1.23.38] - 2026-11-18
+
+### Bug fixes
+- My Tasks has one New Task button (the top bar's); a task added from the top bar shows straight away on the page you're on.
+
 ## [1.23.37] - 2026-11-18
 
 ### Improvements
