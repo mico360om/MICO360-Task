@@ -20,7 +20,7 @@ import { AppreciationPreview, ContentFields, FormDialog, LIMITS } from '../compo
 import { AppreciationIconSvg } from '../components/appreciation/AppreciationArt';
 import { SendTab } from '../components/appreciation/SendAppreciation';
 import { useMyAppreciations } from '../components/appreciation/useMyAppreciations';
-import { ANIMATION_LABEL, APPRECIATION_STATUSES, dayWords, STATUS_TONE, STATUS_WORDS, themeGradient, type AppreciationStatus } from '../lib/appreciation';
+import { ANIMATION_LABEL, APPRECIATION_STATUSES, dayWords, STATUS_TONE, STATUS_WORDS, themeStyle, type AppreciationStatus } from '../lib/appreciation';
 import { ApiError } from '../lib/api-client';
 import { downloadBlob } from '../lib/download';
 import { TOUCH_SQUARE, TOUCH_TALL } from '../lib/touch';
@@ -212,7 +212,7 @@ function HistoryTab({ today }: { today: string }) {
         <ul className="flex flex-col gap-2" aria-label="Appreciations">
           {data.rows.map((r) => (
             <li key={r.id} className="card flex flex-wrap items-center gap-3 p-3" data-row={r.id} data-status={r.status}>
-              <span className="grid h-10 w-10 flex-none place-items-center rounded-xl text-white" style={{ backgroundImage: themeGradient(r.theme) }}>
+              <span className="ap-band grid h-10 w-10 flex-none place-items-center rounded-xl" style={themeStyle(r.theme)}>
                 <AppreciationIconSvg icon={r.icon} size={20} />
               </span>
               <div className="min-w-0 flex-1 basis-56">
@@ -326,11 +326,11 @@ function TemplatesTab({ today }: { today: string }) {
         <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="Templates">
           {rows.map((t) => (
             <li key={t.id} className="card flex flex-col overflow-hidden" data-template={t.id}>
-              <div className="flex items-center gap-3 px-4 py-3 text-white" style={{ backgroundImage: themeGradient(t.theme) }}>
+              <div className="ap-band flex items-center gap-3 px-4 py-3" style={themeStyle(t.theme)}>
                 <AppreciationIconSvg icon={t.icon} size={22} />
                 <h3 dir="auto" className="min-w-0 flex-1 truncate font-display font-semibold">{t.name}</h3>
-                {t.builtIn ? <span className="rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-semibold">Built-in</span> : null}
-                {t.archived ? <span className="rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-semibold">Archived</span> : null}
+                {t.builtIn ? <span className="ap-chip rounded-full px-2 py-0.5 text-[11px] font-semibold">Built-in</span> : null}
+                {t.archived ? <span className="ap-chip rounded-full px-2 py-0.5 text-[11px] font-semibold">Archived</span> : null}
               </div>
               <div className="flex flex-1 flex-col gap-2 p-4">
                 <p dir="auto" className="text-sm font-medium text-ink">{t.title}</p>

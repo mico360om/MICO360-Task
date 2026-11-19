@@ -46,14 +46,14 @@ import { OverdueTrainingLink } from '../components/training/OverdueTrainingLink'
 import { InstallAppCard } from '../components/install/InstallAppCard';
 import { AppreciationBanner } from '../components/appreciation/AppreciationBanner';
 import { useMyAppreciations } from '../components/appreciation/useMyAppreciations';
-import { themeGradient } from '../lib/appreciation';
+import { themeStyle } from '../lib/appreciation';
 
 /** Traffic-light colour for a completion percentage, so the bar reads its health at a glance (1.23.8: the health colours). */
 const completionColor = (pct: number): string => healthColour(pct >= 67 ? 'ON_TRACK' : pct >= 34 ? 'AT_RISK' : 'LATE');
 
 /** The welcome band's two links: a white focus ring (the brand-red one vanished on the band), finger-sized on touch. */
 const BAND_LINK =
-  'inline-flex items-center rounded-xl px-4 py-2 text-sm font-semibold transition-all hover:-translate-y-0.5 focus-visible:outline-white [@media(pointer:coarse)]:min-h-11';
+  'inline-flex items-center rounded-xl px-4 py-2 text-sm font-semibold transition-all hover:-translate-y-0.5 focus-visible:outline-white ap-focus [@media(pointer:coarse)]:min-h-11';
 /** A stat tile's link fills its grid cell, so the tiles in a row are one height even when a hint wraps. */
 const TILE_LINK = 'block h-full';
 
@@ -414,18 +414,18 @@ export function DashboardPage() {
     <div className="flex flex-col gap-6">
       {/* Welcome: one compact band — the greeting on the left, the ways in on the right. */}
       <div
-        className={`relative overflow-hidden rounded-2xl ${appreciation ? 'shadow-soft ' : 'bg-brand-gradient shadow-brand '}px-5 py-4 text-white animate-fade-in-up sm:px-6`}
-        {...(appreciation ? { style: { backgroundImage: themeGradient(appreciation.theme) }, 'data-appreciation-theme': appreciation.theme } : {})}
+        className={`relative overflow-hidden rounded-2xl ${appreciation ? 'ap-band shadow-soft ' : 'bg-brand-gradient shadow-brand text-white '}px-5 py-4 animate-fade-in-up sm:px-6`}
+        {...(appreciation ? { style: themeStyle(appreciation.theme), 'data-appreciation-theme': appreciation.theme } : {})}
       >
         <div className="pointer-events-none absolute -right-10 -top-16 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
         <div className="pointer-events-none absolute -bottom-16 right-24 h-32 w-32 rounded-full bg-black/10 blur-2xl" />
         <div className="relative flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
           <div className="min-w-0">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-white/90">{today}</div>
+            <div className="text-[11px] font-semibold uppercase tracking-wider ap-ink-90">{today}</div>
             <h1 className="font-display text-2xl font-extrabold tracking-tightish sm:text-[1.75rem]">
               {firstDay ? 'Welcome' : 'Welcome back'}, <bdi>{user?.username ?? 'there'}</bdi>.
             </h1>
-            <p className="mt-0.5 hidden text-sm text-white sm:block">
+            <p className="mt-0.5 hidden text-sm sm:block">
               {firstDay
                 ? 'Your workspace is ready. A few steps and your team’s work will show up here.'
                 : 'Here’s a snapshot of your work. Jump into a board, review what’s due, and keep things moving.'}
@@ -437,7 +437,7 @@ export function DashboardPage() {
               <Link to="/board" className={`${BAND_LINK} bg-white text-[#8B1E1E] shadow-soft hover:shadow-lift`}>
                 Open board
               </Link>
-              <Link to="/my-tasks" className={`${BAND_LINK} border border-white/30 bg-white/10 text-white backdrop-blur hover:bg-white/20`}>
+              <Link to="/my-tasks" className={`${BAND_LINK} ap-ghost backdrop-blur`}>
                 View my tasks
               </Link>
               <button
@@ -448,7 +448,7 @@ export function DashboardPage() {
                 aria-controls="customize-dashboard"
                 // Not while the arrangement is unread: Done would save the built-in default over theirs.
                 disabled={!!editing || !layoutQ.isSuccess}
-                className={`${BAND_LINK} gap-1.5 border border-white/30 bg-white/10 text-white backdrop-blur hover:bg-white/20 disabled:opacity-70`}
+                className={`${BAND_LINK} ap-ghost gap-1.5 backdrop-blur disabled:opacity-70`}
               >
                 <CustomizeIcon />
                 {CUSTOMIZE_WORDS.open}

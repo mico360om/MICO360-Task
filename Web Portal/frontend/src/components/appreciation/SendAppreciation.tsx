@@ -17,8 +17,9 @@ import { FieldLabel, fieldClass } from '../ui/Field';
 import { ContentFields } from './AppreciationFields';
 import { AppreciationIconSvg } from './AppreciationArt';
 import { AppreciationPopupPreview } from './AppreciationPopup';
-import { dayShort, dayWords, fillPlaceholders, themeGradient } from '../../lib/appreciation';
+import { dayShort, dayWords, fillPlaceholders, themeStyle } from '../../lib/appreciation';
 import { useMediaQuery } from '../../lib/useMediaQuery';
+import { useElementWidth } from '../../lib/useElementWidth';
 import { TOUCH_TALL } from '../../lib/touch';
 import { useAuthStore } from '../../stores/auth-store';
 
@@ -36,6 +37,13 @@ export const SEND_KEYS = {
 };
 /** Two columns (steps | preview) from about 1100 px — in the site's em units (1100 / 16). */
 export const SEND_WIDE = '(min-width: 68.75em)';
+/**
+ * 1.24.4: the room the Send page itself needs for two columns (the steps at least ~30rem, a 20 px gap, the 24rem
+ * preview). The window alone isn't enough to go by: the open sidebar takes 240 px of it.
+ */
+export const SEND_TWO_COLUMN_ROOM = 900;
+/** Two columns? By the page's own width once measured; until then (and where nothing is measured) by the window. */
+export const sendTwoColumns = (windowWide: boolean, room: number | null): boolean => (room == null ? windowWide : room >= SEND_TWO_COLUMN_ROOM);
 const BLANK: AppreciationContent = { title: '', message: '', theme: 'ruby', icon: 'star', animation: 'confetti' };
 const contentOf = (t: AppreciationContent): AppreciationContent => ({ title: t.title, message: t.message, theme: t.theme, icon: t.icon, animation: t.animation });
 const problemOf = (e: unknown) => (e instanceof Error && e.message ? e.message : 'Something went wrong. Please try again.');
@@ -66,7 +74,9 @@ export function SendTab({ today, onSent }: { today: string; onSent: () => void }
   const qc = useQueryClient();
   const me = useAuthStore((s) => s.user);
   const id = useId();
-  const wide = useMediaQuery(SEND_WIDE, true);
+  const windowWide = useMediaQuery(SEND_WIDE, true);
+  const pageRef = useRef<HTMLDivElement>(null);
+  const wide = sendTwoColumns(windowWide, useElementWidth(pageRef));
   const [search, setSearch] = useState('');
   const [companyId, setCompanyId] = useState('');
   const settled = useSettled(search);
@@ -179,8 +189,9 @@ export function SendTab({ today, onSent }: { today: string; onSent: () => void }
   );
 
   return (
-    <div data-appreciation-send className="flex flex-col gap-5">
-      <div className={wide ? 'grid grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)] items-start gap-5' : 'flex flex-col gap-5'}>
+    <div ref={pageRef} data-appreciation-send className="flex min-w-0 flex-col gap-5">
+      {/* The preview column asks for no more than the room there is (never a minimum that could push it past the edge). */}
+      <div className={wide ? 'grid grid-cols-[minmax(0,1fr)_minmax(0,24rem)] items-start gap-5' : 'flex flex-col gap-5'} data-send-columns={wide ? 2 : 1}>
         <div className="flex min-w-0 flex-col gap-5">
           {/* ── 1. People ─────────────────────────────────────────────── */}
           <section className="card card-pad flex min-w-0 flex-col gap-3" aria-labelledby={`${id}-people`} data-people-step>
@@ -436,7 +447,7 @@ function TemplateCard({ t, name, checked, onPick }: { t: ApiAppreciationTemplate
       data-template-card={t.id}
     >
       <input type="radio" name={name} value={t.id} checked={checked} onChange={onPick} className="sr-only" />
-      <span className="relative flex h-14 items-center justify-between px-3 text-white" style={{ backgroundImage: themeGradient(t.theme) }} data-template-band aria-hidden="true">
+      <span className="ap-band relative flex h-14 items-center justify-between px-3" style={themeStyle(t.theme)} data-template-band aria-hidden="true">
         <AppreciationIconSvg icon={t.icon} size={22} />
         {checked ? (
           <span className="grid h-6 w-6 place-items-center rounded-full bg-white text-[#1F1A19]">

@@ -3,7 +3,7 @@ import { CompanyLogo } from '../company/CompanyLogo';
 import { Logo } from '../ui/Logo';
 import { markPlayed, playedHere, prefersReducedMotion, type AppreciationAnimation, type AppreciationIcon } from '../../lib/appreciation';
 
-/** Employee Appreciation (1.24.0): the six template icons, the confetti burst and the company mark. */
+/** Employee Appreciation (1.24.0): the template icons (twenty from 1.24.4), the confetti burst and the company mark. */
 const PATHS: Record<AppreciationIcon, ReactNode> = {
   star: <path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z" />,
   team: (
@@ -33,12 +33,115 @@ const PATHS: Record<AppreciationIcon, ReactNode> = {
       <path d="M12 12l.9 1.8 2 .3-1.4 1.4.3 2-1.8-.9-1.8.9.3-2-1.4-1.4 2-.3z" />
     </>
   ),
+  // 1.24.4 (owner, 19 Nov): fourteen more, in the same 24-unit stroke style.
+  shield: (
+    <>
+      <path d="M12 3l7 3v5c0 4.6-3 8.3-7 10-4-1.7-7-5.4-7-10V6z" />
+      <path d="M9 12l2 2 4-4" />
+    </>
+  ),
+  clock: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5V12l3 2" />
+    </>
+  ),
+  rocket: (
+    <>
+      <path d="M12 3c3 2 4.5 5.5 4.5 9.5L14.5 16h-5l-2-3.5C7.5 8.5 9 5 12 3z" />
+      <circle cx="12" cy="9.5" r="1.6" />
+      <path d="M7.8 12.8L5 15.5l2.8.6M16.2 12.8l2.8 2.7-2.8.6M10.5 18.5L12 21l1.5-2.5" />
+    </>
+  ),
+  target: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <circle cx="12" cy="12" r="5" />
+      <circle cx="12" cy="12" r="1.5" />
+    </>
+  ),
+  'thumbs-up': (
+    <>
+      <path d="M7 10.5v9.5H4.5v-9.5z" />
+      <path d="M7 10.5l3.8-6.6c1.3 0 2.3 1.1 2.1 2.4l-.5 3.7h5.3a2 2 0 0 1 2 2.3l-1.1 6a2 2 0 0 1-2 1.7H7" />
+    </>
+  ),
+  handshake: (
+    <>
+      <path d="M2.5 11.5L6 8l3.2.8L12 7.5l2.8 1.3L18 8l3.5 3.5" />
+      <path d="M6 14.5l3.2 3.2a1.4 1.4 0 0 0 2-2M8.8 13.7l3.4 3.4a1.4 1.4 0 0 0 2-2l-2.4-2.4M11.4 11.6l2.8 2.8a1.4 1.4 0 0 0 2-2L12.4 8.6" />
+      <path d="M2.5 11.5L6 14.5M21.5 11.5L18 14.5l-1.8-1.8" />
+    </>
+  ),
+  crown: (
+    <>
+      <path d="M4 17.5L3 7.5l5 4 4-6 4 6 5-4-1 10z" />
+      <path d="M5 20.5h14" />
+    </>
+  ),
+  flag: (
+    <>
+      <path d="M5.5 21V3.5" />
+      <path d="M5.5 4.5c3.5-2 6.5 2 10 0 1.5-.8 3-.8 3-.8v9.3s-1.5 0-3 .8c-3.5 2-6.5-2-10 0" />
+    </>
+  ),
+  gift: (
+    <>
+      <rect x="3.5" y="8.5" width="17" height="4" rx="1" />
+      <path d="M5 12.5v8h14v-8M12 8.5v12" />
+      <path d="M12 8.5C11 5.5 6.5 4.5 6.5 7S10 8.5 12 8.5zM12 8.5c1-3 5.5-4 5.5-1.5S14 8.5 12 8.5z" />
+    </>
+  ),
+  sparkles: (
+    <>
+      <path d="M10 4l1.6 4.4L16 10l-4.4 1.6L10 16l-1.6-4.4L4 10l4.4-1.6z" />
+      <path d="M18 14l.8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8z" />
+      <path d="M18 3v3M16.5 4.5h3" />
+    </>
+  ),
+  award: (
+    <>
+      <circle cx="12" cy="9" r="5.5" />
+      <circle cx="12" cy="9" r="2" />
+      <path d="M8.6 13.3L7 21l5-2.5 5 2.5-1.6-7.7" />
+    </>
+  ),
+  lightning: <path d="M13.5 2.5L5 13.5h6.5l-1 8 8.5-11h-6.5z" />,
+  smile: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M8.5 14a4.5 4.5 0 0 0 7 0M9 9.5h.01M15 9.5h.01" />
+    </>
+  ),
+  sun: (
+    <>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4" />
+    </>
+  ),
 };
 
-export function AppreciationIconSvg({ icon, size = 24, className = '' }: { icon: AppreciationIcon; size?: number; className?: string }) {
+/**
+ * An icon, drawn in the current text colour. Decorative by default (the words beside it say what it is); `label`
+ * gives it an accessible name where it stands alone. An unknown name (from a newer version) draws the star.
+ */
+export function AppreciationIconSvg({ icon, size = 24, className = '', label }: { icon: AppreciationIcon; size?: number; className?: string; label?: string }) {
+  const known = Object.prototype.hasOwnProperty.call(PATHS, icon);
   return (
-    <svg viewBox="0 0 24 24" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true" className={className}>
-      {PATHS[icon] ?? PATHS.star}
+    <svg
+      viewBox="0 0 24 24"
+      width={size}
+      height={size}
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      {...(label ? { role: 'img', 'aria-label': label } : { 'aria-hidden': true })}
+      data-icon={known ? icon : 'star'}
+      className={className}
+    >
+      {known ? PATHS[icon] : PATHS.star}
     </svg>
   );
 }

@@ -6,6 +6,7 @@ import { useAuthStore } from '../../stores/auth-store';
 import { forgetLocalAppreciations } from './useMyAppreciations';
 import { AppreciationsPage } from '../../pages/AppreciationsPage';
 import { ConfettiBurst } from './AppreciationArt';
+import { SEND_TWO_COLUMN_ROOM, sendTwoColumns } from './SendAppreciation';
 import { dayShort } from '../../lib/appreciation';
 import type { ApiAppreciationPerson, ApiAppreciationTemplate } from '../../api/appreciations';
 
@@ -278,5 +279,17 @@ describe('the preview’s confetti', () => {
     expect(localStorage.getItem('mico360.appreciation.played.preview2')).toBeNull();
     raf.mockRestore();
     getContext.mockRestore();
+  });
+});
+
+describe('1.24.4: two columns by the page’s own room', () => {
+  it('the open sidebar counts: a 1100 px window with it open (about 820 px of page) is one column; measured room decides', () => {
+    expect(SEND_TWO_COLUMN_ROOM).toBe(900);
+    expect(sendTwoColumns(true, 817)).toBe(false); // 1100 window, sidebar open
+    expect(sendTwoColumns(true, 975)).toBe(true); // 1100 window, sidebar folded
+    expect(sendTwoColumns(true, 1169)).toBe(true); // 1480 window, sidebar open
+    expect(sendTwoColumns(false, 950)).toBe(true);
+    expect(sendTwoColumns(true, null)).toBe(true); // not measured yet: the window
+    expect(sendTwoColumns(false, null)).toBe(false);
   });
 });

@@ -5,7 +5,7 @@ import { PageHeader } from '../components/ui/PageHeader';
 import { EmptyState } from '../components/ui/EmptyState';
 import { LoadError } from '../components/ui/LoadError';
 import { AppreciationIconSvg } from '../components/appreciation/AppreciationArt';
-import { dayWords, STATUS_TONE, STATUS_WORDS, themeGradient } from '../lib/appreciation';
+import { dayWords, STATUS_TONE, STATUS_WORDS, themeStyle } from '../lib/appreciation';
 import { useCompanyTimeZone } from '../lib/company-clock';
 
 const api = appreciationsApi(apiClient);
@@ -51,7 +51,7 @@ export function MyAppreciationsPage() {
         <ul className="flex flex-col gap-3" aria-label="Your appreciations">
           {q.data.map((a) => (
             <li key={a.id} className="card flex gap-4 p-4" data-my-appreciation={a.id}>
-              <span className="grid h-11 w-11 flex-none place-items-center rounded-xl text-white" style={{ backgroundImage: themeGradient(a.theme) }}>
+              <span className="ap-band grid h-11 w-11 flex-none place-items-center rounded-xl" style={themeStyle(a.theme)}>
                 <AppreciationIconSvg icon={a.icon} size={22} />
               </span>
               <div className="min-w-0 flex-1">
