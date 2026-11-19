@@ -274,3 +274,30 @@ describe('Sidebar: Appreciations', () => {
     expect(screen.queryByText('Admin')).not.toBeInTheDocument();
   });
 });
+
+describe('1.24.5: the KPI pages highlight only their own menu item', () => {
+  const current = () => screen.queryAllByRole('link').filter((l) => l.getAttribute('aria-current') === 'page').map((l) => l.getAttribute('data-rail-label') ?? l.textContent);
+
+  it('My performance (/performance): My performance alone', () => {
+    renderSidebar(true, '/performance', 0, true);
+    expect(current()).toEqual(['My performance']);
+  });
+
+  it('another person’s KPIs (/performance/<id>): not My performance — nothing in the menu is that page', () => {
+    renderSidebar(true, '/performance/u-sara', 0, true);
+    expect(current()).toEqual([]);
+  });
+
+  it('KPI targets (/admin/settings/kpis): System Settings alone', () => {
+    renderSidebar(true, '/admin/settings/kpis', 0, true);
+    expect(current()).toEqual(['System Settings']);
+  });
+
+  it('a project’s KPIs tab and Management: their own items alone', () => {
+    const { unmount } = renderSidebar(true, '/projects/p1', 0, true);
+    expect(current()).toEqual(['Projects']);
+    unmount();
+    renderSidebar(true, '/management', 0, true);
+    expect(current()).toEqual(['Management']);
+  });
+});

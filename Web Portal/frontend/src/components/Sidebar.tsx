@@ -25,6 +25,11 @@ interface NavItem {
   tour?: string;
   /** Owner, 13 Nov: a sub-menu (Third Party): an item that opens to show these links (it has no page of its own). */
   children?: NavItem[];
+  /**
+   * 1.24.5: highlighted on its own address only, not on the addresses under it (My performance: another person's KPIs,
+   * /performance/<id>, aren't yours — no menu item is that page).
+   */
+  end?: boolean;
 }
 
 // Compact 24x24 stroke icons (no external dependency). Every item has its own: on the tablet rail
@@ -222,7 +227,7 @@ const WORKSPACE: NavItem[] = [
   { label: 'Meetings', to: '/meetings', icon: I.meetings },
   { label: 'My Action Items', to: '/my-action-items', icon: I.actionItems },
   { label: 'Templates', to: '/templates', icon: I.templates },
-  { label: 'My performance', to: '/performance', icon: PERFORMANCE_ICON },
+  { label: 'My performance', to: '/performance', icon: PERFORMANCE_ICON, end: true },
   // The Learning Hub (the owner's name for the Training Center, 11 Nov).
   { label: 'Learning Hub', to: '/training', icon: TRAINING_ICON, tour: 'training' },
   { label: 'Management', to: '/management', icon: I.management, leadsOnly: true },
@@ -882,7 +887,7 @@ function NavGroup({ label, items, onNavigate, chatUnread = 0, trainingOverdue = 
           ) : item.children?.length ? (
             <NavSubGroup key={item.to} item={item} rail={rail} onNavigate={onNavigate} />
           ) : (
-            <NavLink key={item.to} to={item.to} className={linkClass(rail)} onClick={onNavigate} data-rail-label={item.label} data-tour={item.tour}>
+            <NavLink key={item.to} to={item.to} end={item.end} className={linkClass(rail)} onClick={onNavigate} data-rail-label={item.label} data-tour={item.tour}>
               <NavIcon>{item.icon}</NavIcon>
               <span className={labelClass(rail)}>{item.label}</span>
             </NavLink>

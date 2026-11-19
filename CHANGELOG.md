@@ -15,6 +15,7 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 ## [Unreleased]
 
 ### Bug fixes
+- Menu: another person's KPIs page (opened from Workload, a project's team or Management) no longer highlights "My performance" — that item lights up on your own KPIs only. KPI targets keeps System Settings highlighted, and a project's KPIs tab keeps Projects.
 - Learning Hub: the "Change the columns" picture in MICO360 Tasks User Training showed the old Manage columns panel. It is retaken on today's compact table (Name, Status, Tasks, Visible, order), with sample data only, and its description matches it. Sites whose built-in course nobody edited get the new picture when they update.
 - Client portal: opening a task or meeting that a notification is about — or acting on it (a comment, Accept, Send back, an upload, a download, an RSVP, Mark done) — now marks that notification read, so the bell's count goes down at once, as it does for staff. Before, it stayed unread unless the client opened it from the Notifications list. Preview as client still changes nothing.
 - Audit Logs: saving a person in User Management records only what really changed, as before → after (for example "lastName: A → Ahmed"). A Save that only changes the account status no longer adds an entry listing every field; the status entry itself now reads "status: Active → Suspended" style, before → after.
