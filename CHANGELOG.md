@@ -15,6 +15,7 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 ## [Unreleased]
 
 ### Bug fixes
+- Clients list (Admin → Third Party → Clients): the row buttons no longer run off the right edge (Delete was cut off at 1440 px and narrower). From 1440 px wide the table shows each client's email under the name and wraps the buttons inside the Actions column; on narrower windows each client is a card, two side by side, with every button shown. No sideways scrolling at any width, and the buttons are finger-sized on touch screens.
 - Menu: another person's KPIs page (opened from Workload, a project's team or Management) no longer highlights "My performance" — that item lights up on your own KPIs only. KPI targets keeps System Settings highlighted, and a project's KPIs tab keeps Projects.
 - Learning Hub: the "Change the columns" picture in MICO360 Tasks User Training showed the old Manage columns panel. It is retaken on today's compact table (Name, Status, Tasks, Visible, order), with sample data only, and its description matches it. Sites whose built-in course nobody edited get the new picture when they update.
 - Client portal: opening a task or meeting that a notification is about — or acting on it (a comment, Accept, Send back, an upload, a download, an RSVP, Mark done) — now marks that notification read, so the bell's count goes down at once, as it does for staff. Before, it stayed unread unless the client opened it from the Notifications list. Preview as client still changes nothing.

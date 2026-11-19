@@ -25,8 +25,12 @@ import { AccountStatusDialog } from '../components/onboarding/AccountStatusDialo
 import { EMAIL_OFF_BANNER, invitedText, matchesStatusFilter, NO_ONE_WITH_STATUS, ONBOARDING_FILTERS, type StatusFilter } from '../lib/onboarding';
 import { useAuthStore } from '../stores/auth-store';
 
-/** Below 768px (the md width, in em as the layout's widths are): one card per client instead of the table. */
-const PHONE_QUERY = '(max-width: 47.9375em)';
+/**
+ * 1.24.5: below 1440px (in em as the layout's widths are) one card per client instead of the table — one column on a
+ * phone, two side by side from 768px. The table's seven pieces of a client and their actions don't fit beside the
+ * menu any narrower: they used to run off its right edge (Delete cut off, a sideways scroll in the card).
+ */
+const CARDS_QUERY = '(max-width: 89.9375em)';
 /** A finger-sized target on a touch screen ('!': over the base rule's 32px for every button). */
 const TOUCH = '[@media(pointer:coarse)]:!min-h-11';
 const ACTION = `inline-flex items-center whitespace-nowrap rounded-lg border px-2 py-1 text-xs font-medium transition-colors disabled:opacity-50 ${TOUCH}`;
@@ -85,7 +89,7 @@ export function ClientsPage() {
   const shown = clients.filter((c) => matchesStatusFilter(c, statusFilter));
   const [notice, setNotice] = useState<Notice | null>(null);
   const timeZone = useCompanyTimeZone();
-  const phone = useMediaQuery(PHONE_QUERY);
+  const cards = useMediaQuery(CARDS_QUERY);
   useShortcut('new', () => setCreating(true));
   // Welcome emails need email set up on the server (until /config answers, they're offered).
   const configQ = useQuery({ queryKey: ['app-config'], queryFn: () => configApi(apiClient).get(), staleTime: Infinity, refetchOnWindowFocus: false });
@@ -306,15 +310,15 @@ export function ClientsPage() {
         />
       ) : statusFilter && shown.length === 0 ? (
         <p className="card card-pad text-ink-2">{NO_ONE_WITH_STATUS[statusFilter]}</p>
-      ) : phone ? (
-        <ul aria-label="Clients" className="flex flex-col gap-2">
+      ) : cards ? (
+        <ul aria-label="Clients" className="grid grid-cols-1 items-start gap-2 md:grid-cols-2">
           {shown.map((c) => (
             <li key={c.id} className="min-w-0 rounded-xl border border-line bg-surface p-3 shadow-soft">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">{nameButton(c)}</div>
                 <div className="flex-none">{status(c)}</div>
               </div>
-              <p className="mt-0.5 truncate text-sm text-ink-2" title={c.email}>{c.email}</p>
+              <p className="mt-0.5 text-sm text-ink-2 [overflow-wrap:anywhere]">{c.email}</p>
               <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-2 text-sm">
                 <div className="min-w-0">
                   <dt className="text-xs text-ink-3">Organisation</dt>
@@ -334,30 +338,31 @@ export function ClientsPage() {
           ))}
         </ul>
       ) : (
-        <div className="card overflow-x-auto" tabIndex={0} role="region" aria-label="Clients">
+        <div className="card" role="region" aria-label="Clients">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-2">
-                <th className="min-w-[10rem] p-3">Client</th>
+                <th className="min-w-[12rem] p-3">Client</th>
                 <th className="p-3">Organisation</th>
-                <th className="p-3">Email</th>
-                <th className="min-w-[10rem] p-3">Projects</th>
+                <th className="min-w-[9rem] p-3">Projects</th>
                 <th className="whitespace-nowrap p-3">Last sign-in</th>
                 <th className="p-3">Status</th>
-                <th className="p-3 text-right">Actions</th>
+                <th className="w-[15.5rem] p-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
               {shown.map((c) => (
                 <tr key={c.id} className="border-b border-line align-top last:border-0">
-                  <td className="p-3">{nameButton(c)}</td>
+                  <td className="p-3">
+                    {nameButton(c)}
+                    <span className="mt-0.5 block text-xs text-ink-2 [overflow-wrap:anywhere]">{c.email}</span>
+                  </td>
                   <td className="p-3 text-ink-2">{organisation(c)}</td>
-                  <td className="p-3 text-ink-2">{c.email}</td>
                   <td className="p-3">{projects(c)}</td>
                   <td className="whitespace-nowrap p-3 text-ink-2">{lastSignIn(c)}</td>
                   <td className="p-3">{status(c)}</td>
                   <td className="p-3">
-                    <div className="flex items-center justify-end gap-2">{actions(c)}</div>
+                    <div className="flex flex-wrap items-center justify-end gap-1.5">{actions(c)}</div>
                   </td>
                 </tr>
               ))}

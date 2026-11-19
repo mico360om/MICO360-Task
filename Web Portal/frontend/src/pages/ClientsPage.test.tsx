@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { ClientsPage } from './ClientsPage';
@@ -69,7 +69,8 @@ describe('ClientsPage', () => {
   it('lists each client: name, organisation, email, projects, last sign-in and status', async () => {
     renderPage();
     await screen.findByRole('button', { name: 'Open Huda Saleh' });
-    expect(within(screen.getByRole('table')).getAllByRole('columnheader').map((h) => h.textContent?.trim())).toEqual(['Client', 'Organisation', 'Email', 'Projects', 'Last sign-in', 'Status', 'Actions']);
+    // 1.24.5: the email is under the name (the table fits a 1440 px window with the menu open).
+    expect(within(screen.getByRole('table')).getAllByRole('columnheader').map((h) => h.textContent?.trim())).toEqual(['Client', 'Organisation', 'Projects', 'Last sign-in', 'Status', 'Actions']);
     const row = rowOf('Huda Saleh');
     expect(row).toHaveTextContent('@huda');
     expect(row).toHaveTextContent('Owner Group');
@@ -236,6 +237,33 @@ describe('ClientsPage', () => {
     expect(await screen.findByText(/couldn’t load the clients/i)).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(await screen.findByRole('button', { name: 'Open Huda Saleh' })).toBeInTheDocument();
+  });
+
+  it('1.24.5: below 1440 px (1024, 1280) a card per client, two side by side from 768 px — every action shown, none cut off', async () => {
+    for (const w of [1024, 1280]) {
+      windowWidth(w);
+      renderPage();
+      const name = await screen.findByRole('button', { name: 'Open Huda Saleh' });
+      expect(screen.queryByRole('table')).toBeNull();
+      const card = name.closest('li')!;
+      expect(card.parentElement!.className).toMatch(/md:grid-cols-2/);
+      expect(within(card).getByRole('button', { name: 'Delete huda' })).toBeInTheDocument();
+      expect(card).toHaveTextContent('huda@client.test');
+      cleanup();
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('1.24.5: from 1440 px the table: the row’s actions wrap inside their column (never past the table’s edge)', async () => {
+    windowWidth(1440);
+    renderPage();
+    await screen.findByRole('button', { name: 'Open Huda Saleh' });
+    const row = rowOf('Huda Saleh');
+    expect(row).toHaveTextContent('huda@client.test');
+    const del = within(row).getByRole('button', { name: 'Delete huda' });
+    expect(del.parentElement!.className).toMatch(/flex-wrap/);
+    // The card's sideways scroll is gone: nothing in the table is ever hidden behind it.
+    expect(screen.getByRole('table').closest('.card')!.className).not.toMatch(/overflow-x-auto/);
   });
 
   it('on a phone: one card per client, with finger-sized buttons', async () => {
