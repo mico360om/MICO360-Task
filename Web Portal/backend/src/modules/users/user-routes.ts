@@ -177,11 +177,13 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
   const adminOnly = { preHandler: guard.requireRoles('ADMIN') };
   const logAudit = (req: FastifyRequest, action: string, entityId: string | null, newValue?: unknown, oldValue?: unknown) =>
     deps.audit?.record({ userId: req.user?.id ?? null, ip: req.ip ?? null, module: 'users', action, entityId, newValue, ...(oldValue !== undefined ? { oldValue } : {}) });
-  /** A person's name for the audit log (Reports to); null: none, or no longer there. */
-  const personName = async (userId: string | null | undefined): Promise<string | null> => {
+  /** A person's name for the audit log (Reports to); null: none; their id when they are no longer there. */
+  const personName = async (userId: string | null | undefined, withUsername = false): Promise<string | null> => {
     if (!userId) return null;
     const u = await userService.getUser(userId).catch(() => null);
-    return u ? `${u.firstName} ${u.lastName}`.trim() || u.username : userId;
+    if (!u) return userId;
+    const name = `${u.firstName} ${u.lastName}`.trim() || u.username;
+    return withUsername ? `${name} (@${u.username})` : name;
   };
   /** 1.24.5: a saved account's real changes, as { oldValue, newValue } of the changed fields only; null: none. */
   const profileChanges = async (before: UserSummary, after: UserSummary) => {
@@ -194,7 +196,13 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
     };
     for (const k of ['firstName', 'lastName', 'username', 'email', 'myProjectsOnly', 'trainingManager', 'appreciationManager'] as const) note(k, before[k], after[k]);
     if ((before.departmentId ?? null) !== (after.departmentId ?? null)) note('department', before.departmentName ?? before.departmentId, after.departmentName ?? after.departmentId);
-    if ((before.reportsToId ?? null) !== (after.reportsToId ?? null)) note('reportsTo', await personName(before.reportsToId), await personName(after.reportsToId));
+    if ((before.reportsToId ?? null) !== (after.reportsToId ?? null)) {
+      // Two people with the same name are told apart by their usernames (a real change is never dropped — review).
+      let was = await personName(before.reportsToId);
+      let now = await personName(after.reportsToId);
+      if (was !== null && was === now) [was, now] = [await personName(before.reportsToId, true), await personName(after.reportsToId, true)];
+      note('reportsTo', was, now);
+    }
     note('roles', before.roles.slice().sort(), after.roles.slice().sort());
     const names = (u: UserSummary) => (u.companies ?? []).map((c) => c.name).sort((a, b) => a.localeCompare(b));
     if (JSON.stringify((before.companies ?? []).map((c) => c.id).sort()) !== JSON.stringify((after.companies ?? []).map((c) => c.id).sort())) note('companies', names(before), names(after));

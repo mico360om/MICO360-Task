@@ -136,8 +136,8 @@ beforeAll(async () => {
     userService: createUserService({ users: createPrismaUserRepository(prisma) }),
     userPreferences: createPrismaPreferences(prisma),
     auditService: {
-      async record(d: { action: string; entityId?: string | null; newValue?: unknown }) {
-        audited.push({ action: d.action, entityId: d.entityId ?? null, newValue: d.newValue });
+      async record(d: { action: string; entityId?: string | null; newValue?: unknown; oldValue?: unknown }) {
+        audited.push({ action: d.action, entityId: d.entityId ?? null, newValue: d.newValue, ...(d.oldValue !== undefined ? { oldValue: d.oldValue } : {}) });
         return {} as never;
       },
       async list() {
@@ -406,7 +406,7 @@ describe('“Show my projects only” set by another administrator in User Manag
     expect(res.statusCode, res.body).toBe(200);
     expect((res.json() as { data: { myProjectsOnly: boolean } }).data.myProjectsOnly).toBe(true);
     expect(await stored(w.people.admin)).toBe(true);
-    expect(audited).toContainEqual({ action: 'user.update', entityId: w.people.admin, newValue: { myProjectsOnly: true, changed: ['myProjectsOnly'] } });
+    expect(audited).toContainEqual({ action: 'user.update', entityId: w.people.admin, oldValue: { myProjectsOnly: false }, newValue: { myProjectsOnly: true } }); // 1.24.5: before → after
     // The user list shows the saved state.
     const listed = (await api.get(boss, '/users')) as { id: string; myProjectsOnly: boolean }[];
     expect(listed.find((u) => u.id === w.people.admin)?.myProjectsOnly).toBe(true);

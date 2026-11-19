@@ -339,6 +339,12 @@ describe('notifications: the bell, emails and switches', () => {
     expect(await unreadAbout(onS1)).toBe(1);
     expect((await a.post(w.as.c1, `/portal/projects/${w.projects.P1}/tasks/${w.tasks.S1}/comments`, { body: 'ZZ thanks' })).status).toBe(201);
     expect(await unreadAbout(onS1)).toBe(0);
+    // Downloading the approved minutes is acting on the meeting too (review minor 6).
+    await a.clientNotices.minutesSent(w.meetings.M1S, w.people.c1);
+    const onM1S = (n: { meetingId: string | null }) => n.meetingId === w.meetings.M1S;
+    expect(await unreadAbout(onM1S)).toBeGreaterThan(0);
+    expect((await a.app.inject({ method: 'GET', url: `/api/v1/portal/projects/${w.projects.P1}/meetings/${w.meetings.M1S}/minutes.pdf`, headers: { authorization: `Bearer ${a.tokenFor(w.as.c1)}` } })).statusCode).toBe(200);
+    expect(await unreadAbout(onM1S)).toBe(0);
     // Another client's notices are never touched.
     const c2Unread = await prisma.clientNotice.count({ where: { userId: w.people.c2, readAt: null } });
     await a.get(w.as.c1, `/portal/projects/${w.projects.P1}/tasks/${w.tasks.S1}`);

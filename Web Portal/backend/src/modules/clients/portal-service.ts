@@ -812,6 +812,7 @@ export function createPortalService(deps: PortalDeps) {
       if (!m.minutes) throw notFound();
       const out = await deps.minutesPdf(project.id, m.id);
       if (!out) throw notFound();
+      await readNoticesAbout(userId, client.id, { meetingId: m.id });
       await record({ userId: client.id, ip: meta.ip ?? null, action: 'portal.pdf.minutes', entityId: m.id, newValue: { projectId: project.id } });
       return out;
     },

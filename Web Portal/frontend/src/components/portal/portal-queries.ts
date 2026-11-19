@@ -75,6 +75,9 @@ export function useNoticesReadAbout(about: { taskId: string } | { meetingId: str
   const preview = usePortalPreview();
   const taskId = 'taskId' in about ? about.taskId : null;
   const meetingId = 'meetingId' in about ? about.meetingId : null;
+  // Also when the bell answers after the item (a direct link: both asked at once, the bell counted before the read
+  // was saved) — review: else it stays unread until the bell's next minute.
+  const bellAt = useQuery({ queryKey: portalKeys.notices, enabled: false }).dataUpdatedAt;
   useEffect(() => {
     if (preview || !loadedAt) return;
     const bell = qc.getQueryData<PortalNotices>(portalKeys.notices);
@@ -85,7 +88,7 @@ export function useNoticesReadAbout(about: { taskId: string } | { meetingId: str
       old ? { items: old.items.map((n) => (ids.has(n.id) ? { ...n, read: true } : n)), unread: Math.max(0, old.unread - hits.length) } : old,
     );
     void qc.invalidateQueries({ queryKey: portalKeys.notices });
-  }, [preview, loadedAt, taskId, meetingId, qc]);
+  }, [preview, loadedAt, bellAt, taskId, meetingId, qc]);
 }
 export function usePortalWhereIs(m: string) {
   const api = usePortalApi();

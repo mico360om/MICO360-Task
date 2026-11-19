@@ -262,8 +262,13 @@ describe('ClientsPage', () => {
     expect(row).toHaveTextContent('huda@client.test');
     const del = within(row).getByRole('button', { name: 'Delete huda' });
     expect(del.parentElement!.className).toMatch(/flex-wrap/);
-    // The card's sideways scroll is gone: nothing in the table is ever hidden behind it.
-    expect(screen.getByRole('table').closest('.card')!.className).not.toMatch(/overflow-x-auto/);
+    // Long words break instead of widening the table: the username and the project names (review).
+    expect(within(row).getByText('@huda').className).toMatch(/overflow-wrap:anywhere/);
+    for (const chip of within(within(row).getByRole('list', { name: 'Projects' })).getAllByRole('listitem')) expect(chip.className).toMatch(/overflow-wrap:anywhere/);
+    // A last safety net: should a row still not fit, the table scrolls inside its card (never the page), reachable by keyboard.
+    const wrap = screen.getByRole('region', { name: 'Clients' });
+    expect(wrap.className).toMatch(/overflow-x-auto/);
+    expect(wrap).toHaveAttribute('tabindex', '0');
   });
 
   it('on a phone: one card per client, with finger-sized buttons', async () => {

@@ -808,6 +808,15 @@ describe('1.24.5: the audit log of a saved account lists only what really change
     expect(updates()).toHaveLength(1);
   });
 
+  it('Reports to changed between two people with the same name is still recorded, told apart by username (review)', async () => {
+    const { id } = await make('sara');
+    const { id: omar } = await make('omar');
+    const { id: omar2 } = await make('omar2');
+    await put(id, { reportsToId: omar });
+    await put(id, { reportsToId: omar2 });
+    expect(updates().at(-1)).toEqual({ action: 'user.update', entityId: id, oldValue: { reportsTo: 'Omar A (@omar)' }, newValue: { reportsTo: 'Omar A (@omar2)' } });
+  });
+
   it('never records a password or a secret field, and nothing for a save that changes nothing', async () => {
     const { id } = await make('sara');
     await put(id, wholeForm);

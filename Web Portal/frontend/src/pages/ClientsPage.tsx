@@ -156,7 +156,7 @@ export function ClientsPage() {
   const nameButton = (c: ClientAccount) => (
     <button type="button" onClick={() => setEditing(c)} aria-label={`Open ${nameOf(c)}`} className={`flex min-w-0 flex-col items-start rounded text-left ${TOUCH}`}>
       <bdi className="font-medium text-ink [overflow-wrap:anywhere] hover:text-brand hover:underline">{nameOf(c)}</bdi>
-      <span className="text-xs font-normal text-ink-3">@{c.username}</span>
+      <span className="text-xs font-normal text-ink-3 [overflow-wrap:anywhere]">@{c.username}</span>
     </button>
   );
   const organisation = (c: ClientAccount) => (c.organisation ? <bdi className="[overflow-wrap:anywhere]">{c.organisation}</bdi> : <span className="text-ink-3">—</span>);
@@ -168,7 +168,7 @@ export function ClientsPage() {
         <span className="text-xs font-medium text-ink-2">{projectCount(c.projects.length)}</span>
         <ul aria-label="Projects" className="flex flex-wrap gap-1">
           {c.projects.slice(0, NAMED).map((p) => (
-            <li key={p.projectId} className="rounded-md bg-ground px-1.5 py-0.5 text-xs text-ink-2" title={p.archived ? 'Archived: hidden in the Client portal' : undefined}>
+            <li key={p.projectId} className="rounded-md bg-ground px-1.5 py-0.5 text-xs text-ink-2 [overflow-wrap:anywhere]" title={p.archived ? 'Archived: hidden in the Client portal' : undefined}>
               <bdi>{p.name}</bdi>
               {p.archived ? <span> (archived)</span> : null}
             </li>
@@ -338,7 +338,8 @@ export function ClientsPage() {
           ))}
         </ul>
       ) : (
-        <div className="card" role="region" aria-label="Clients">
+        // A safety net only (review): the table fits from 1440 px; a row that still can't scrolls inside the card, never the page.
+        <div className="card overflow-x-auto" tabIndex={0} role="region" aria-label="Clients">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-2">

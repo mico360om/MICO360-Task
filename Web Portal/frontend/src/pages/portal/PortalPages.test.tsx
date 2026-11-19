@@ -771,6 +771,17 @@ describe('1.23.7 Client portal: the bell and Notifications', () => {
     expect(api.readNotice).not.toHaveBeenCalled();
   });
 
+  it('1.24.5: the bell answering after the meeting (a direct link) still counts its notice read (review)', async () => {
+    const invitation = notice({ id: 'n5', kind: 'invitation', title: 'Invitation: Site walk-through', taskId: null, meetingId: 'm1' });
+    let answer: (v: unknown) => void = () => {};
+    api.notices.mockImplementationOnce(() => new Promise((r) => (answer = r))).mockResolvedValue(notices([{ ...invitation, read: true }]));
+    renderAt('/portal/projects/p1/meetings/m1');
+    expect(await screen.findByRole('heading', { level: 2, name: 'Site walk-through' })).toBeInTheDocument();
+    answer(notices([invitation]));
+    await waitFor(() => expect(api.notices.mock.calls.length).toBeGreaterThanOrEqual(2));
+    expect(await screen.findByRole('link', { name: 'Notifications' })).toBeInTheDocument();
+  });
+
   it('1.24.5: a task with no unread notice about it asks the bell nothing more', async () => {
     api.notices.mockResolvedValue(notices([notice({ id: 'n3', taskId: 't9' })]));
     renderAt('/portal/projects/p1/tasks/t2');
