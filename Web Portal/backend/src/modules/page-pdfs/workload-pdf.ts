@@ -110,6 +110,7 @@ export function buildWorkloadPdf(data: WorkloadWire, opts: { q: string }, meta: 
         p.text(x, 5, dayHeading(d.date, data.today).toUpperCase(), { size: TYPE.label, bold: true, color: d.date === data.today ? BRAND : MUTED, maxWidth: dayW, align: 'center' });
       });
     });
+  doc.keepTogether(20 + rowH);
   header();
   if (people.length === 0) {
     note(doc, opts.q.trim() ? `Nobody matches “${opts.q.trim()}”.` : 'Nobody to show for this week.');

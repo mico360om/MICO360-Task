@@ -232,7 +232,12 @@ describe('api client', () => {
   it('postBlob throws an ApiError with the server’s words on a refusal', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: { code: 'FORBIDDEN', message: 'You can’t see this.' } }, 403)));
     const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => 'tok' });
-    await expect(api.postBlob('/board.pdf', {})).rejects.toMatchObject({ status: 403, code: 'FORBIDDEN' });
+    const onRefused = vi.fn();
+    const quiet = createApiClient({ baseUrl: 'http://api.test', getToken: () => 'tok', onRefused } as Parameters<typeof createApiClient>[0]);
+    await expect(quiet.postBlob('/board.pdf', {})).rejects.toMatchObject({ status: 403, code: 'FORBIDDEN' });
+    // A PDF is a read: the page's refusal notices (archived project, Manager View) aren't raised by it.
+    expect(onRefused).not.toHaveBeenCalled();
+    void api;
   });
 
   it('getBlob throws an ApiError on a non-2xx response', async () => {

@@ -569,10 +569,10 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
     return name ? new File([blob], name, { type: blob.type }) : blob;
   }
 
-  /** A download asked for with a JSON body (a page PDF); the server's file name kept, as getBlob. */
+  /** A download asked for with a JSON body (a page PDF): a read like getBlob (its refusals are a read's), the server's file name kept. */
   async function postBlob(path: string, body: unknown, asUser?: string): Promise<Blob> {
     const res = await authedFetch('POST', path, { body }, asUser);
-    if (!res.ok) throw refusal(res.status, await res.text());
+    if (!res.ok) throw failure(res.status, await res.text());
     const blob = await res.blob();
     const name = fileNameFromDisposition(res.headers.get('content-disposition'));
     return name ? new File([blob], name, { type: blob.type }) : blob;

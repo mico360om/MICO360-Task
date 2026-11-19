@@ -88,22 +88,22 @@ const calendarBody = z.object({
     .array(
       z.object({
         day: z.string().regex(DAY),
-        items: z.array(z.object({ kind: z.enum(['task', 'meeting']), id: idText, status: z.string().max(20).optional() })).max(200),
+        items: z.array(z.object({ kind: z.enum(['task', 'meeting']), id: idText, status: z.string().max(20).optional() })).max(2000),
       }),
     )
     .max(62),
 });
-const projectsBody = z.object({ all: z.boolean().optional(), tab: z.string().max(20).optional(), ids: z.array(idText).max(2000), filters: words });
+const projectsBody = z.object({ all: z.boolean().optional(), tab: z.string().max(20).optional(), ids: z.array(idText).max(10000), filters: words });
 const boardBody = z
   .object({
     projectId: z.union([idText, z.literal('all')]),
     date: z.string().regex(DAY).optional(),
     month: z.string().regex(MONTH).optional(),
-    columns: z.array(z.object({ id: z.string().max(80), keys: z.array(z.string().max(40)).max(2000) })).max(40),
+    columns: z.array(z.object({ id: z.string().max(80), keys: z.array(z.string().max(40)).max(10000) })).max(40),
     filters: words,
   })
   .refine((b) => !(b.date && b.month), 'Ask for a day or a month, not both.');
-const myTasksBody = z.object({ groups: z.array(z.object({ label: z.string().max(80), ids: z.array(idText).max(2000) })).max(10), filters: words });
+const myTasksBody = z.object({ groups: z.array(z.object({ label: z.string().max(80), ids: z.array(idText).max(10000) })).max(10), filters: words });
 
 /**
  * "Download PDF" on the Workspace pages (1.24.3). Each PDF asks the page's own data route — the same
@@ -117,6 +117,8 @@ const myTasksBody = z.object({ groups: z.array(z.object({ label: z.string().max(
 export async function registerPagePdfRoutes(app: FastifyInstance, deps: PagePdfRouteDeps): Promise<void> {
   const { guard } = deps;
   const auth = { preHandler: guard.authenticate };
+  // A big page (thousands of cards) names every row it shows: room for that in the body.
+  const big = { preHandler: guard.authenticate, bodyLimit: 8 * 1024 * 1024 };
   const allow = perMinute(deps.pdfsPerMinute ?? 10);
   const now = () => deps.now?.() ?? new Date();
   const prefix = app.prefix;
@@ -159,11 +161,11 @@ export async function registerPagePdfRoutes(app: FastifyInstance, deps: PagePdfR
       .header('Cache-Control', 'no-store')
       .send(pdf);
 
-  /** Projects by id for names and colours: the person's list, then (at most 40) the ones a row names that aren't on it. */
+  /** Projects by id for names and colours: the person's list, then (at most 40) the ones a row names that aren't on it (at most 10 more reads: each counts as one of the person's requests). */
   async function projectsFor(req: FastifyRequest, ids: Iterable<string>): Promise<Map<string, ProjectRef>> {
     const list = await read<ProjectRef[]>(req, '/projects').catch(() => [] as ProjectRef[]);
     const map = new Map((Array.isArray(list) ? list : []).map((p) => [p.id, p]));
-    const missing = [...new Set(ids)].filter((id) => !map.has(id) && ID.test(id)).slice(0, 40);
+    const missing = [...new Set(ids)].filter((id) => !map.has(id) && ID.test(id)).slice(0, 10);
     const extra = await Promise.all(missing.map((id) => read<ProjectRef>(req, `/projects/${encodeURIComponent(id)}`).catch(() => null)));
     for (const p of extra) if (p) map.set(p.id, p);
     return map;
@@ -215,7 +217,7 @@ export async function registerPagePdfRoutes(app: FastifyInstance, deps: PagePdfR
   });
 
   // ── Calendar ──────────────────────────────────────────────────────────────
-  app.post('/calendar.pdf', auth, async (req, reply) => {
+  app.post('/calendar.pdf', big, async (req, reply) => {
     const body = parse(calendarBody, req.body, 'Say which days to print.');
     if (body.to < body.from) throw new ValidationError('Ask for days ending on or after the start.');
     limit(req);
@@ -229,16 +231,16 @@ export async function registerPagePdfRoutes(app: FastifyInstance, deps: PagePdfR
   });
 
   // ── Projects ──────────────────────────────────────────────────────────────
-  app.post('/projects/overview.pdf', auth, async (req, reply) => {
+  app.post('/projects/overview.pdf', big, async (req, reply) => {
     const body = parse(projectsBody, req.body, 'Say which projects to print.');
     limit(req);
     const list = await read<ProjectOverviewWire[]>(req, `/projects/overview${qs({ all: body.all ? '1' : undefined })}`);
-    const pdf = buildProjectsPdf(list, { ids: body.ids, tab: body.tab ?? 'all', filters: cleanFilterWords(body.filters), today: today(), timeZone: deps.timeZone }, await meta(req, body.ids.length === 1 ? body.ids[0]! : null));
+    const pdf = buildProjectsPdf(list, { ids: body.ids, tab: body.tab ?? 'all', filters: cleanFilterWords(body.filters), today: today(), timeZone: deps.timeZone }, await meta(req, brandProjectOf(list, body.ids)));
     return send(reply, 'Projects', pdf);
   });
 
   // ── Kanban Board ──────────────────────────────────────────────────────────
-  app.post('/board.pdf', auth, async (req, reply) => {
+  app.post('/board.pdf', big, async (req, reply) => {
     const body = parse(boardBody, req.body, 'Say which board to print.');
     limit(req);
     const all = body.projectId === 'all';
@@ -261,7 +263,7 @@ export async function registerPagePdfRoutes(app: FastifyInstance, deps: PagePdfR
   });
 
   // ── My Tasks ──────────────────────────────────────────────────────────────
-  app.post('/tasks/mine.pdf', auth, async (req, reply) => {
+  app.post('/tasks/mine.pdf', big, async (req, reply) => {
     const body = parse(myTasksBody, req.body, 'Say which tasks to print.');
     limit(req);
     const tasks = await read<TaskWire[]>(req, '/tasks/mine');
@@ -269,6 +271,13 @@ export async function registerPagePdfRoutes(app: FastifyInstance, deps: PagePdfR
     const pdf = buildMyTasksPdf(tasks, body.groups as MyTasksGroupAsk[], { projects, filters: cleanFilterWords(body.filters), today: today(), timeZone: deps.timeZone }, await meta(req, null));
     return send(reply, 'My Tasks', pdf);
   });
+}
+
+/** The one project a Projects PDF shows (its brand), only when the overview holds it for this person; else none. */
+function brandProjectOf(list: ProjectOverviewWire[], ids: string[]): string | null {
+  const held = new Set(list.map((p) => p.id));
+  const shown = [...new Set(ids)].filter((id) => held.has(id));
+  return shown.length === 1 ? shown[0]! : null;
 }
 
 /** A 'YYYY-MM-DD' day moved by whole days. */

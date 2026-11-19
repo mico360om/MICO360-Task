@@ -776,3 +776,20 @@ describe('PdfDocument.canvas (1.24.3 drawn blocks)', () => {
     expect(text).toContain('خالد البلوشي');
   });
 });
+
+describe('PdfDocument.canvas review fixes (1.24.3)', () => {
+  it('a shortened line never cuts inside a character (an emoji keeps both halves)', () => {
+    const doc = new PdfDocument();
+    doc.canvas(20, (p) => p.text(0, 0, '😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀', { size: 8, maxWidth: 30 }));
+    const pdf = doc.build().toString('latin1');
+    expect(pdf.startsWith('%PDF-')).toBe(true);
+    expect(readPdfText(doc.build()).text).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+  });
+
+  it('a dashed outline sets its line width and dash before its path (no state change inside a path)', () => {
+    const doc = new PdfDocument();
+    doc.canvas(20, (p) => p.rect(0, 0, 40, 10, '#FFFFFF', { stroke: '#2E7D53', dash: 2, radius: 3 }));
+    const content = doc.build().toString('latin1');
+    expect(content).not.toMatch(/\bre\s+[\d.]+\s+w\b/);
+  });
+});

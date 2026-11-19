@@ -33,7 +33,9 @@ interface Asked {
 /** The app with stand-in page routes: `pages` maps 'GET /path' to its answer; a user named "outsider" is refused (403) as a page would. */
 async function app(pages: Record<string, Page>): Promise<{ a: FastifyInstance; asked: Asked[] }> {
   const asked: Asked[] = [];
-  const a = await buildApp({ authService, tokenService, reportNames: { project: async () => null, user: async () => 'Omar Said' } });
+  // Each project's company brand (any project, unchecked — as the real brands are): the PDF must only ask for one it may show.
+  const pdfBranding = { project: async (id: string) => ({ companyName: `Brand of ${id}`, logo: null }), scope: async () => ({ companyName: 'Contoso Group', logo: null }), task: async () => ({ companyName: null, logo: null }), meeting: async () => ({ companyName: null, logo: null }), inspection: async () => ({ companyName: null, logo: null }) };
+  const a = await buildApp({ authService, tokenService, pdfBranding, reportNames: { project: async () => null, user: async () => 'Omar Said' } });
   const guard = createAuthGuard(tokenService);
   await a.register(
     async (api) => {
@@ -396,5 +398,32 @@ describe('GET /kpis/people/…/export.pdf', () => {
     expect((await a.inject({ method: 'GET', url: '/api/v1/kpis/people/u1/export.pdf', headers: await as('outsider') })).statusCode).toBe(403);
     expect((await a.inject({ method: 'GET', url: '/api/v1/kpis/people/u1/export.pdf', headers: await as('cl', ['CLIENT']) })).statusCode).toBe(403);
     expect((await a.inject({ method: 'GET', url: '/api/v1/kpis/people/bad%20id/export.pdf', headers: await as('mgr') })).statusCode).toBe(404);
+  });
+});
+
+describe('review fixes (1.24.3)', () => {
+  it('Projects: a project the overview doesn’t hold never brands the PDF (no company oracle); one shown card does', async () => {
+    const { a } = await app({ 'GET /projects/overview': () => [overview('con', 'Contoso Tower')] });
+    const foreign = textOf((await a.inject({ method: 'POST', url: '/api/v1/projects/overview.pdf', headers: await as('mgr'), payload: { ids: ['ghost'] } })).rawPayload);
+    expect(foreign).not.toContain('Brand of ghost');
+    expect(foreign).toContain('Contoso Group');
+    const one = textOf((await a.inject({ method: 'POST', url: '/api/v1/projects/overview.pdf', headers: await as('mgr'), payload: { ids: ['con'] } })).rawPayload);
+    expect(one).toContain('Brand of con');
+  });
+
+  it('a big page is printed, not refused: 3000 cards in a column, 400 items on a day', async () => {
+    const cards = Array.from({ length: 3000 }, (_, i) => task(`k${i}`, `CON-${i}`, `Card ${i}`, { columnId: 'c-todo' }));
+    const { a } = await app({ 'GET /tasks': () => cards, 'GET /projects/:id/columns': () => COLUMNS, 'GET /projects': () => PROJECTS, 'GET /calendar': () => ({ from: '2026-11-01', to: '2026-11-30', tasks: cards.slice(0, 400) }), 'GET /meetings': () => [] });
+    const board = await a.inject({ method: 'POST', url: '/api/v1/board.pdf', headers: await as('mgr'), payload: { projectId: 'p1', columns: [{ id: 'c-todo', keys: cards.map((t) => t.key) }] } });
+    expect(board.statusCode).toBe(200);
+    const cal = await a.inject({ method: 'POST', url: '/api/v1/calendar.pdf', headers: await as('mgr'), payload: { view: 'agenda', from: '2026-11-01', to: '2026-11-30', days: [{ day: '2026-11-20', items: cards.slice(0, 400).map((t) => ({ kind: 'task', id: t.id })) }] } });
+    expect(cal.statusCode).toBe(200);
+  }, 60_000);
+
+  it('Calendar: a task’s status is the server’s, whatever the page sends', async () => {
+    const { a } = await app({ 'GET /calendar': () => ({ from: '2026-11-01', to: '2026-11-30', tasks: [task('t1', 'CON-1', 'Order the steel', { dueDate: '2026-11-02' })] }), 'GET /meetings': () => [], 'GET /projects': () => PROJECTS });
+    const text = textOf((await a.inject({ method: 'POST', url: '/api/v1/calendar.pdf', headers: await as('mgr'), payload: { view: 'agenda', from: '2026-11-01', to: '2026-11-30', days: [{ day: '2026-11-02', items: [{ kind: 'task', id: 't1', status: 'done' }] }] } })).rawPayload);
+    expect(text).toContain('Contoso Tower · Overdue');
+    expect(text).not.toContain('Done');
   });
 });

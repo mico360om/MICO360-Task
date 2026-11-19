@@ -1465,6 +1465,7 @@ export class PdfDocument {
     const ink = this.pal.ink;
     const color = (c: RGB | string) => toHex(typeof c === 'string' ? hexToRgb(c) : c);
     const fitted = (text: string, size: number, bold: boolean, maxWidth: number | undefined, minSize: number) => {
+      const chars = [...text]; // cut between characters, never inside one (an emoji)
       const one = (t: string, sz: number) => layoutText(t, { size: sz, bold })[0] ?? null;
       let sz = size;
       let line = one(text, sz);
@@ -1475,26 +1476,27 @@ export class PdfDocument {
       }
       if (!line || line.width <= maxWidth) return { line, size: sz };
       let lo = 0;
-      let hi = text.length;
+      let hi = chars.length;
       while (lo < hi) {
         const mid = (lo + hi + 1) >> 1;
-        if (measureText(`${text.slice(0, mid).trimEnd()}…`, sz, bold) <= maxWidth) lo = mid;
+        if (measureText(`${chars.slice(0, mid).join('').trimEnd()}…`, sz, bold) <= maxWidth) lo = mid;
         else hi = mid - 1;
       }
-      return { line: lo > 0 ? one(`${text.slice(0, lo).trimEnd()}…`, sz) : null, size: sz };
+      return { line: lo > 0 ? one(`${chars.slice(0, lo).join('').trimEnd()}…`, sz) : null, size: sz };
     };
     /** The text wrapped to `maxWidth` in at most `maxLines` lines (the last ends with "…" when more was cut). */
     const wrapped = (text: string, size: number, bold: boolean, maxWidth: number, maxLines: number): TextLine[] => {
+      const chars = [...text];
       const all = layoutText(text, { size, bold, maxWidth });
       if (all.length <= maxLines) return all;
       let lo = 0;
-      let hi = text.length;
+      let hi = chars.length;
       while (lo < hi) {
         const mid = (lo + hi + 1) >> 1;
-        if (layoutText(`${text.slice(0, mid).trimEnd()}…`, { size, bold, maxWidth }).length <= maxLines) lo = mid;
+        if (layoutText(`${chars.slice(0, mid).join('').trimEnd()}…`, { size, bold, maxWidth }).length <= maxLines) lo = mid;
         else hi = mid - 1;
       }
-      return layoutText(`${text.slice(0, lo).trimEnd()}…`, { size, bold, maxWidth }).slice(0, maxLines);
+      return layoutText(`${chars.slice(0, lo).join('').trimEnd()}…`, { size, bold, maxWidth }).slice(0, maxLines);
     };
     const painter: PdfPainter = {
       width: this.contentWidth,
@@ -1502,12 +1504,14 @@ export class PdfDocument {
       rect: (x, y, w, h, fill, o = {}) => {
         if (w <= 0 || h <= 0) return;
         doc.save();
+        // The line's width and dash first: no graphics-state change inside a path (the PDF rule).
+        if (o.stroke) doc.lineWidth(o.lineWidth ?? 0.5);
+        if (o.dash) doc.dash(o.dash, { space: o.dash });
         if (o.radius) doc.roundedRect(left + x, top + y, w, h, Math.min(o.radius, w / 2, h / 2));
         else doc.rect(left + x, top + y, w, h);
-        if (o.dash) doc.dash(o.dash, { space: o.dash });
-        if (fill !== null && o.stroke) doc.lineWidth(o.lineWidth ?? 0.5).fillAndStroke(color(fill), color(o.stroke));
+        if (fill !== null && o.stroke) doc.fillAndStroke(color(fill), color(o.stroke));
         else if (fill !== null) doc.fill(color(fill));
-        else if (o.stroke) doc.lineWidth(o.lineWidth ?? 0.5).stroke(color(o.stroke));
+        else if (o.stroke) doc.stroke(color(o.stroke));
         if (o.dash) doc.undash();
         doc.restore();
       },

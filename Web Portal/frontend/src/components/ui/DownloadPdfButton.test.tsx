@@ -26,10 +26,15 @@ describe('DownloadPdfButton (1.24.3 page PDFs)', () => {
     await userEvent.click(button);
     expect(make).toHaveBeenCalledTimes(1);
     expect(button).toHaveAttribute('aria-busy', 'true');
-    expect(button).toBeDisabled();
+    // Busy, but still focusable (keyboard focus stays on it); a second press makes nothing more.
+    expect(button).toHaveAttribute('aria-disabled', 'true');
+    expect(button).not.toBeDisabled();
+    expect(button).toHaveFocus();
+    await userEvent.click(button);
+    expect(make).toHaveBeenCalledTimes(1);
     expect(button).toHaveTextContent('Preparing…');
     await act(async () => finish(new File(['%PDF'], 'Workload 2026-11-19.pdf', { type: 'application/pdf' })));
-    await waitFor(() => expect(button).not.toBeDisabled());
+    await waitFor(() => expect(button).not.toHaveAttribute('aria-disabled', 'true'));
     expect(button).toHaveTextContent('Download PDF');
     expect(saved.map((s) => s.name)).toEqual(['Workload 2026-11-19.pdf']);
   });

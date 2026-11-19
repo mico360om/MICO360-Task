@@ -96,6 +96,7 @@ export function buildBoardPdf(
           p.text(x + w - 28, 6, String(c.cards.length), { size: TYPE.small, bold: true, color: MUTED, maxWidth: 22, align: 'right' });
         });
       });
+    doc.keepTogether(24 + cardH + 5); // the column heads never alone at the foot of a page
     head();
     const rows = Math.max(1, ...cols.map((c) => c.cards.length));
     for (let r = 0; r < rows; r++) {

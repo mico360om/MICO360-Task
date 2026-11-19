@@ -45,12 +45,14 @@ export function DownloadPdfButton({ make, fallbackName, disabled = false }: { ma
       <button
         type="button"
         onClick={() => void download()}
-        disabled={disabled || busy}
+        // Busy: aria-disabled, not disabled, so keyboard focus stays on the button.
+        disabled={disabled}
+        aria-disabled={busy || undefined}
         aria-busy={busy}
         aria-label={busy ? undefined : 'Download PDF'}
         title="Download PDF"
         data-download-pdf
-        className="inline-flex h-10 flex-none items-center justify-center gap-1.5 rounded-xl border border-line bg-surface px-3 text-sm font-semibold text-ink transition-colors hover:border-brand/30 hover:bg-ground disabled:cursor-not-allowed disabled:opacity-60 max-sm:h-11 max-sm:w-11 max-sm:px-0 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11"
+        className="inline-flex h-10 flex-none items-center justify-center gap-1.5 rounded-xl border border-line bg-surface px-3 text-sm font-semibold text-ink transition-colors hover:border-brand/30 hover:bg-ground disabled:cursor-not-allowed disabled:opacity-60 aria-disabled:cursor-wait max-sm:h-11 max-sm:w-11 max-sm:px-0 [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:min-w-11"
       >
         {busy ? (
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true" className="animate-spin">

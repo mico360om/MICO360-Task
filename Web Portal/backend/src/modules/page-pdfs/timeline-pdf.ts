@@ -127,9 +127,10 @@ export function buildTimelinePdf(
       });
       if (todayIn) p.text(xOf(p.width, data.today, true) - 20, 17, 'Today', { size: TYPE.label, bold: true, color: BRAND, maxWidth: 40, align: 'center' });
     });
+  const rowH = 36;
+  doc.keepTogether(30 + rowH); // the heads never alone at the foot of a page
   header();
 
-  const rowH = 36;
   for (const project of shown) {
     doc.canvas(
       rowH,

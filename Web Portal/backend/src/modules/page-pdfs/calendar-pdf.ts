@@ -6,6 +6,7 @@
  * person are printed.
  */
 import { formatDay, wallClock } from '../../lib/export-format';
+import { dueDayKey } from '../../lib/due-date';
 import { HEALTH_TONES, OVERDUE_TONES, STATUS_TONES } from '../../lib/colour-scheme';
 import type { PdfDocument, PdfPainter } from '../../lib/pdf-document';
 import { BRAND, BRAND_SOFT, INK, LINE, MUTED, SOFT, TYPE, note, pagePdf, plural, type PdfMeta } from './page-pdf-kit';
@@ -81,6 +82,7 @@ export function buildCalendarPdf(
   // What this person's calendar holds: only these may be printed.
   const tasks = new Map<string, TaskWire>();
   for (const t of [...range.tasks, ...(range.spanning ?? []), ...(range.series ?? [])]) tasks.set(t.id, t);
+  const seriesIds = new Set((range.series ?? []).map((t) => t.id));
   const meetingById = new Map(meetings.map((m) => [m.id, m]));
   const clock = (iso: string) => wallClock(new Date(iso), opts.timeZone).slice(11);
 
@@ -92,7 +94,9 @@ export function buildCalendarPdf(
       if (it.kind === 'task') {
         const t = tasks.get(it.id);
         if (!t) continue;
-        const status = it.status && TONES[it.status] ? it.status : statusOf(t, d.day, opts.today);
+        // The status is the server's (by its due day); only a series' coming copy may say it is one.
+        const projected = it.status === 'projected' && seriesIds.has(t.id);
+        const status = projected ? 'projected' : statusOf(t, dueDayKey(t.dueDate, opts.timeZone) ?? d.day, opts.today);
         const tone = TONES[status]!;
         const project = opts.projects.get(t.projectId);
         chips.push({ kind: 'task', label: `${t.key} ${t.title}`, detail: [project ? project.name : '', STATUS_WORDS[status] ?? ''].filter(Boolean).join(' · '), ...tone, dashed: status === 'projected' });
@@ -144,6 +148,7 @@ function grid(doc: PdfDocument, opts: { view: View; from: string; to: string; to
       p.rect(0, 0, p.width, headH, SOFT);
       (weeks[0] ?? []).forEach((d, i) => p.text(i * cw, 4, WEEKDAYS[weekday(d)]!.toUpperCase(), { size: TYPE.label, bold: true, color: MUTED, maxWidth: cw, align: 'center' }));
     });
+  doc.keepTogether(headH + Math.min(rowH, doc.pageRoom - headH)); // the weekday heads with the first week
   head();
   const month = middle.slice(0, 7);
   for (const week of weeks) {
@@ -183,6 +188,7 @@ function chip(p: PdfPainter, x: number, y: number, w: number, c: Chip): void {
 function dayList(doc: PdfDocument, keys: string[], byDay: Map<string, Chip[]>): void {
   for (const d of keys) {
     const chips = byDay.get(d) ?? [];
+    doc.keepTogether(18 + 14); // a day's heading with its first item
     doc.canvas(18, (p) => {
       p.text(0, 4, `${formatDay(d, { weekday: true })} · ${plural(chips.length, 'item')}`, { size: TYPE.small, bold: true, color: INK });
       p.line(0, 17.5, p.width, 17.5, LINE);

@@ -72,6 +72,7 @@ export function buildPerformancePdf(k: PersonKpisWire, opts: { self: boolean }, 
         const cw = (p.width - labelW) / points.length;
         points.forEach((pt, i) => p.text(labelW + i * cw, 1, pt.current ? `${pt.label} (now)` : pt.label, { size: TYPE.label, color: pt.current ? INK : MUTED, bold: pt.current, maxWidth: cw - 4, align: 'center' }));
       });
+    doc.keepTogether(14 + rowH);
     head();
     for (const t of rows) {
       doc.canvas(
