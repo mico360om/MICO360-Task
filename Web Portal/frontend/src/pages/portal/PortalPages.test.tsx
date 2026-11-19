@@ -751,6 +751,35 @@ describe('1.23.7 Client portal: the bell and Notifications', () => {
     expect(screen.queryByRole('button', { name: 'Mark all as read' })).toBeNull();
   });
 
+  it('1.24.5: opening the task a notice is about (not from the notice) reads it — the bell counts it read at once', async () => {
+    api.notices.mockResolvedValueOnce(notices(three())).mockResolvedValue(notices(three().map((n) => (n.id === 'n1' ? { ...n, read: true } : n))));
+    renderAt('/portal/projects/p1/tasks/t2');
+    expect(await screen.findByRole('heading', { level: 2, name: 'Paint the walls' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Notifications, 1 unread' })).toBeInTheDocument();
+    // The bell asks the server again (the server read it when the task opened); no separate "read" was sent.
+    await waitFor(() => expect(api.notices.mock.calls.length).toBeGreaterThanOrEqual(2));
+    expect(api.readNotice).not.toHaveBeenCalled();
+  });
+
+  it('1.24.5: opening the meeting a notice is about reads it too', async () => {
+    const invitation = notice({ id: 'n4', kind: 'invitation', title: 'Invitation: Site walk-through', taskId: null, meetingId: 'm1' });
+    api.notices.mockResolvedValueOnce(notices([invitation])).mockResolvedValue(notices([{ ...invitation, read: true }]));
+    renderAt('/portal/projects/p1/meetings/m1');
+    expect(await screen.findByRole('heading', { level: 2, name: 'Site walk-through' })).toBeInTheDocument();
+    await waitFor(() => expect(api.notices.mock.calls.length).toBeGreaterThanOrEqual(2));
+    expect(await screen.findByRole('link', { name: 'Notifications' })).toBeInTheDocument();
+    expect(api.readNotice).not.toHaveBeenCalled();
+  });
+
+  it('1.24.5: a task with no unread notice about it asks the bell nothing more', async () => {
+    api.notices.mockResolvedValue(notices([notice({ id: 'n3', taskId: 't9' })]));
+    renderAt('/portal/projects/p1/tasks/t2');
+    expect(await screen.findByRole('heading', { level: 2, name: 'Paint the walls' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Notifications, 1 unread' })).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 300));
+    expect(api.notices).toHaveBeenCalledTimes(1);
+  });
+
   it('with none yet it says so, and links to the settings', async () => {
     renderAt('/portal/notifications');
     expect(await screen.findByText('No notifications yet.')).toBeInTheDocument();

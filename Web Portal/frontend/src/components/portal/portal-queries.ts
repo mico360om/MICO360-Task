@@ -1,4 +1,5 @@
-import { useQuery, type QueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
+import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import type { PortalMeetingView, PortalNotices, PortalTaskView } from '../../api/portal';
 import { usePortalApi, usePortalPreview } from './portal-context';
 
@@ -42,13 +43,15 @@ export const TASK_EVERY_MS = 5_000;
 export function usePortalTask(p: string, t: string) {
   const api = usePortalApi();
   const preview = usePortalPreview();
-  return useQuery({
+  const q = useQuery({
     queryKey: portalKeys.task(p, t),
     queryFn: () => api.task(p, t),
     enabled: Boolean(p && t),
     refetchInterval: (q) => (!preview && q.state.data?.can?.comment ? TASK_EVERY_MS : false),
     refetchOnWindowFocus: !preview,
   });
+  useNoticesReadAbout({ taskId: t }, q.dataUpdatedAt);
+  return q;
 }
 export function usePortalMeetings(p: string) {
   const api = usePortalApi();
@@ -56,7 +59,33 @@ export function usePortalMeetings(p: string) {
 }
 export function usePortalMeeting(p: string, m: string) {
   const api = usePortalApi();
-  return useQuery({ queryKey: portalKeys.meeting(p, m), queryFn: () => api.meeting(p, m), enabled: Boolean(p && m) });
+  const q = useQuery({ queryKey: portalKeys.meeting(p, m), queryFn: () => api.meeting(p, m), enabled: Boolean(p && m) });
+  useNoticesReadAbout({ meetingId: m }, q.dataUpdatedAt);
+  return q;
+}
+
+/**
+ * 1.24.5: the server reads a client's notices about a task or meeting when it opens (or is acted on) — as the staff
+ * bell does. Each time the item arrives (opened, read again, or an action's answer), any notice the bell shows unread
+ * about it is counted read at once, and the bell asks the server again; nothing is asked when none is unread. Never in
+ * a preview (nothing is read there).
+ */
+export function useNoticesReadAbout(about: { taskId: string } | { meetingId: string }, loadedAt: number): void {
+  const qc = useQueryClient();
+  const preview = usePortalPreview();
+  const taskId = 'taskId' in about ? about.taskId : null;
+  const meetingId = 'meetingId' in about ? about.meetingId : null;
+  useEffect(() => {
+    if (preview || !loadedAt) return;
+    const bell = qc.getQueryData<PortalNotices>(portalKeys.notices);
+    const hits = (bell?.items ?? []).filter((n) => !n.read && (taskId ? n.taskId === taskId : meetingId !== null && n.meetingId === meetingId));
+    if (!hits.length) return;
+    const ids = new Set(hits.map((n) => n.id));
+    qc.setQueryData<PortalNotices>(portalKeys.notices, (old) =>
+      old ? { items: old.items.map((n) => (ids.has(n.id) ? { ...n, read: true } : n)), unread: Math.max(0, old.unread - hits.length) } : old,
+    );
+    void qc.invalidateQueries({ queryKey: portalKeys.notices });
+  }, [preview, loadedAt, taskId, meetingId, qc]);
 }
 export function usePortalWhereIs(m: string) {
   const api = usePortalApi();

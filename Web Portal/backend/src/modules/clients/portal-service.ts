@@ -335,6 +335,21 @@ export function createPortalService(deps: PortalDeps) {
     return userId;
   };
 
+  /**
+   * 1.24.5: opening or acting on what a notice is about is reading it (as the staff bell does: opening a
+   * conversation clears its notifications) — the client's own unread notices about that task or meeting.
+   * Never for a preview (an administrator's `PortalViewer`): it writes nothing. Best effort: a failure here
+   * never fails the page or the action.
+   */
+  const readNoticesAbout = async (who: string | PortalViewer, clientId: string, about: { taskId: string } | { meetingId: string }) => {
+    if (typeof who !== 'string') return;
+    try {
+      await prisma.clientNotice.updateMany({ where: { userId: clientId, readAt: null, ...about }, data: { readAt: now() } });
+    } catch (err) {
+      deps.logger?.warn('client portal: notices could not be marked read', { err, ...about });
+    }
+  };
+
   /** The files of a shared task a client may see (shown to clients, or their own uploads). */
   const filesOf = (taskId: string, clientId: string): Promise<PortalFileSource[]> =>
     prisma.attachment.findMany({ where: { taskId, OR: [{ clientVisible: true }, { fromClient: true, uploadedById: clientId }] }, select: fileSelect, orderBy: { createdAt: 'asc' } });
@@ -554,6 +569,7 @@ export function createPortalService(deps: PortalDeps) {
     async task(who: string | PortalViewer, projectId: unknown, taskId: unknown) {
       const { client, grant, project } = await open(who, projectId, 'progress');
       const t = await sharedTask(project.id, taskId);
+      await readNoticesAbout(who, client.id, { taskId: t.id });
       const comments = actionsOf(grant).comment ? await threadOf(t.id, client.id) : null;
       return portalTaskView(toTaskSource(t), grant, comments, client.id, deps.timeZone, now(), await filesOf(t.id, client.id));
     },
@@ -571,6 +587,7 @@ export function createPortalService(deps: PortalDeps) {
       const file = await read();
       if (!file) throw new ValidationError('No file uploaded.');
       const rec = await deps.uploadFile(t.id, client.id, file);
+      await readNoticesAbout(userId, client.id, { taskId: t.id });
       await activity({ taskId: t.id, userId: client.id, action: 'ATTACHED', meta: { filename: rec.filename, client: true } });
       await record({ userId: client.id, ip: meta.ip ?? null, action: 'portal.file.upload', entityId: t.id, newValue: { projectId: project.id, attachmentId: rec.id, filename: rec.filename } });
       await tellTeam(t.id, project.id, client.id, { type: 'TASK_COMMENT', title: 'A client uploaded a document', body: `${t.key} ${t.title}: ${rec.filename}`.slice(0, 500) });
@@ -587,6 +604,7 @@ export function createPortalService(deps: PortalDeps) {
       const content = await deps.readFile(f.storageKey).catch(() => null);
       if (!content) throw notFound();
       await record({ userId: client.id, ip: meta.ip ?? null, action: 'portal.file.download', entityId: f.id, newValue: { projectId: project.id, taskId: t.id } });
+      await readNoticesAbout(userId, client.id, { taskId: t.id });
       return { content, filename: f.filename, mimeType: f.mimeType };
     },
 
@@ -641,6 +659,7 @@ export function createPortalService(deps: PortalDeps) {
       }
       const parentId = answered ? (answered.parentId ?? answered.id) : null;
       const c = await prisma.comment.create({ data: { taskId: t.id, userId: client.id, body, fromClient: true, parentId } });
+      await readNoticesAbout(userId, client.id, { taskId: t.id });
       await activity({ taskId: t.id, userId: client.id, action: 'COMMENTED', meta: { commentId: c.id, client: true } });
       await record({ userId: client.id, ip: meta.ip ?? null, action: 'portal.comment', entityId: t.id, newValue: { projectId: project.id, commentId: c.id, ...(parentId ? { replyTo: answered!.id } : {}) } });
       try {
@@ -672,6 +691,7 @@ export function createPortalService(deps: PortalDeps) {
       const t = await sharedTask(project.id, taskId);
       const src = toTaskSource(t);
       if (!canSignOff(src)) throw new ConflictError(PORTAL_WORDS.notDone, 'NOT_DONE');
+      await readNoticesAbout(userId, client.id, { taskId: t.id });
       if (!currentAcceptance(src)) {
         const at = now();
         await prisma.task.update({ where: { id: t.id }, data: { clientAcceptedAt: at, clientAcceptedById: client.id } });
@@ -698,6 +718,7 @@ export function createPortalService(deps: PortalDeps) {
       await deps.moveTask(t.id, target.id, client.id);
       await prisma.task.update({ where: { id: t.id }, data: { clientAcceptedAt: null, clientAcceptedById: null } });
       const c = await prisma.comment.create({ data: { taskId: t.id, userId: client.id, body: `Sent back: ${why}`, fromClient: true } });
+      await readNoticesAbout(userId, client.id, { taskId: t.id });
       await activity({ taskId: t.id, userId: client.id, action: 'CLIENT_SENT_BACK', meta: { client: true, reason: why, commentId: c.id } });
       await record({ userId: client.id, ip: meta.ip ?? null, action: 'portal.task.sent_back', entityId: t.id, newValue: { projectId: project.id, commentId: c.id } });
       await tellTeam(t.id, project.id, client.id, { type: 'TASK_CLIENT_SIGN_OFF', title: 'A client sent a task back', body: `${t.key} ${t.title}: ${why}`.slice(0, 500) }, 'task:updated');
@@ -733,6 +754,7 @@ export function createPortalService(deps: PortalDeps) {
     async meeting(who: string | PortalViewer, projectId: unknown, meetingId: unknown) {
       const { client, grant, project } = await open(who, projectId, 'meetings');
       const m = await meetingFor(client.id, project.id, meetingId);
+      await readNoticesAbout(who, client.id, { meetingId: m.id });
       const items = (await ownItems(client.id, [m.id])).get(m.id) ?? [];
       return portalMeetingView(m, items, grant, deps.timeZone);
     },
@@ -758,6 +780,7 @@ export function createPortalService(deps: PortalDeps) {
       if (m.status === 'CANCELLED') throw new ConflictError(PORTAL_WORDS.cancelled, 'MEETING_CANCELLED');
       const rows = await prisma.meetingAttendee.findMany({ where: { meetingId: m.id, userId: client.id }, select: { id: true } });
       for (const r of rows) await deps.setResponse(m.id, r.id, response);
+      await readNoticesAbout(userId, client.id, { meetingId: m.id });
       await record({ userId: client.id, ip: meta.ip ?? null, action: 'portal.meeting.response', entityId: m.id, newValue: { projectId: project.id, response } });
       const items = (await ownItems(client.id, [m.id])).get(m.id) ?? [];
       return portalMeetingView(await meetingFor(client.id, project.id, m.id), items, grant, deps.timeZone);
@@ -772,6 +795,7 @@ export function createPortalService(deps: PortalDeps) {
       if (!item?.meetingId) throw notFound();
       // The meeting must be one of this project's they may see (invited, or minutes shown).
       const m = await meetingFor(client.id, project.id, item.meetingId);
+      await readNoticesAbout(userId, client.id, { meetingId: m.id });
       if (item.status !== 'COMPLETED' && item.status !== 'CANCELLED') {
         await deps.completeActionItem(item.id);
         await record({ userId: client.id, ip: meta.ip ?? null, action: 'portal.action_item.done', entityId: item.id, newValue: { projectId: project.id, meetingId: m.id } });

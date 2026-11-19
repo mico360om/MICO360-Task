@@ -15,6 +15,7 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 ## [Unreleased]
 
 ### Bug fixes
+- Client portal: opening a task or meeting that a notification is about — or acting on it (a comment, Accept, Send back, an upload, a download, an RSVP, Mark done) — now marks that notification read, so the bell's count goes down at once, as it does for staff. Before, it stayed unread unless the client opened it from the Notifications list. Preview as client still changes nothing.
 - Audit Logs: saving a person in User Management records only what really changed, as before → after (for example "lastName: A → Ahmed"). A Save that only changes the account status no longer adds an entry listing every field; the status entry itself now reads "status: Active → Suspended" style, before → after.
 
 ## [1.24.4] - 2026-11-19

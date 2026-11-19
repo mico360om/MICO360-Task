@@ -316,6 +316,34 @@ describe('notifications: the bell, emails and switches', () => {
     expect((await a.post(w.as.c1, '/portal/notifications/read-all')).data.unread).toBe(0);
     expect((await bell(w.as.c1)).unread).toBe(0);
   });
+
+  it('1.24.5: opening or acting on what a notice is about marks it read, as the staff bell does — nothing else', async () => {
+    await setGrant(w.people.c1, w.projects.P1, { ...ALL, role: 'APPROVER' });
+    const unreadAbout = async (pick: (n: { taskId: string | null; meetingId: string | null }) => boolean) => (await bell(w.as.c1)).items.filter((n) => !n.read && pick(n)).length;
+    const onS1 = (n: { taskId: string | null }) => n.taskId === w.tasks.S1;
+    const onM1 = (n: { meetingId: string | null }) => n.meetingId === w.meetings.M1;
+    // A reply on S1 and an invitation to M1, both unread.
+    await a.post(w.as.omar, `/tasks/${w.tasks.S1}/comments`, { body: 'ZZREPLY four', parentId: w.comments.c1, clientVisible: true });
+    await a.clientNotices.invited(w.meetings.M1, [w.people.c1]);
+    expect(await unreadAbout(onS1)).toBeGreaterThan(0);
+    expect(await unreadAbout(onM1)).toBeGreaterThan(0);
+    // Opening the task (not the notice) reads its notices; the meeting's stay unread.
+    expect((await a.get(w.as.c1, `/portal/projects/${w.projects.P1}/tasks/${w.tasks.S1}`)).status).toBe(200);
+    expect(await unreadAbout(onS1)).toBe(0);
+    expect(await unreadAbout(onM1)).toBeGreaterThan(0);
+    // Opening the meeting reads the invitation.
+    expect((await a.get(w.as.c1, `/portal/projects/${w.projects.P1}/meetings/${w.meetings.M1}`)).status).toBe(200);
+    expect(await unreadAbout(onM1)).toBe(0);
+    // Acting on the task (a comment, straight from the API) reads a newer notice about it too.
+    await a.post(w.as.omar, `/tasks/${w.tasks.S1}/comments`, { body: 'ZZREPLY five', parentId: w.comments.c1, clientVisible: true });
+    expect(await unreadAbout(onS1)).toBe(1);
+    expect((await a.post(w.as.c1, `/portal/projects/${w.projects.P1}/tasks/${w.tasks.S1}/comments`, { body: 'ZZ thanks' })).status).toBe(201);
+    expect(await unreadAbout(onS1)).toBe(0);
+    // Another client's notices are never touched.
+    const c2Unread = await prisma.clientNotice.count({ where: { userId: w.people.c2, readAt: null } });
+    await a.get(w.as.c1, `/portal/projects/${w.projects.P1}/tasks/${w.tasks.S1}`);
+    expect(await prisma.clientNotice.count({ where: { userId: w.people.c2, readAt: null } })).toBe(c2Unread);
+  });
 });
 
 describe('Preview as client', () => {
