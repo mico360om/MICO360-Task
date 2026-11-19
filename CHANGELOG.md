@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.24.3] - 2026-11-19
+
 ### Improvements
 - Appreciations have eight more colour themes — Rose, Coral, Gold, Lime, Teal, Sky, Indigo and Plum — and fourteen more icons: shield, clock, rocket, target, thumbs up, handshake, crown, flag, gift, sparkles, award ribbon, lightning, smile and sun. White text stays easy to read on every theme (Amber's lighter end is a shade deeper for this too).
 - A "Custom" colour for appreciations and templates: pick any colour with the colour picker, or type a code like #1E6091. The banner, popup, preview, template cards and the Dashboard's welcome band are coloured from it, with white or dark text — whichever reads clearly — in the light and the dark theme. A very light colour is deepened a little so it never fades into the page.
