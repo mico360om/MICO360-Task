@@ -130,6 +130,15 @@ describe('2. Template', () => {
     expect(screen.getByLabelText(/^Message/)).toHaveValue('Well done, {name}!');
   });
 
+  it('any number of templates (16 built-ins from 1.24.2) wrap in the grid, all choosable', async () => {
+    api.templates.mockResolvedValue(Array.from({ length: 16 }, (_, i) => T(`t${i}`, `Template ${i + 1}`)));
+    show();
+    const group = await screen.findByRole('radiogroup', { name: 'Template' });
+    expect(within(group).getAllByRole('radio')).toHaveLength(16);
+    fireEvent.click(within(group).getByRole('radio', { name: 'Template 16' }));
+    expect(within(group).getByRole('radio', { name: 'Template 16' })).toBeChecked();
+  });
+
   it('"Manage templates" opens the Templates tab', async () => {
     show();
     fireEvent.click(await screen.findByRole('link', { name: 'Manage templates' }));
