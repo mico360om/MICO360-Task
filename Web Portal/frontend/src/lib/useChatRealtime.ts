@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Socket } from 'socket.io-client';
+import type { LiveSocket } from './authedSocket';
 import { useAuthStore } from '../stores/auth-store';
 import { openAuthedSocket } from './authedSocket';
 
@@ -40,7 +40,7 @@ export function useChatRealtime(
   const key = [...projectIds].sort().join(',');
   const wanted = useRef(key);
   wanted.current = key;
-  const live = useRef<Socket | null>(null);
+  const live = useRef<LiveSocket | null>(null);
   /** Rooms this socket has asked to join (reset on every connection: a new connection starts in none). */
   const joined = useRef<Set<string>>(new Set());
   // Re-run only when a session starts or ends — token refreshes must not tear the socket down.

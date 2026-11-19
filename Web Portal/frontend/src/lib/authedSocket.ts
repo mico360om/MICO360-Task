@@ -41,12 +41,26 @@ export function onCompaniesChanged(listener: () => void): () => void {
   };
 }
 
+/**
+ * 1.24.5 — what a listener gets: the live connection, seen through its own handle. `on` adds a listener of
+ * this handle's (taken away again by `close`); `emit('join' | 'leave', { projectId })` asks for a project's
+ * room, which the connection joins once for every handle that wants it (in every tab) and leaves only when
+ * none does; anything else is sent as it is.
+ */
+export interface LiveSocket {
+  readonly connected: boolean;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- listeners take each event's own payload
+  on(event: string, listener: (...args: any[]) => void): LiveSocket;
+  emit(event: string, ...args: unknown[]): LiveSocket;
+}
+
 export interface AuthedSocketOptions {
   /**
    * Runs after every successful connection. `isReconnect` is true from the second connection on,
-   * which is when callers should re-join rooms and refetch whatever they may have missed.
+   * which is when callers should re-join rooms and refetch whatever they may have missed. A handle
+   * opened while the connection is already up is told so at once (not a reconnect).
    */
-  onConnect?: (socket: Socket, isReconnect: boolean) => void;
+  onConnect?: (socket: LiveSocket, isReconnect: boolean) => void;
   /** Runs whenever the connection drops (socket.io then reconnects by itself, or we do). */
   onDisconnect?: (reason: string) => void;
   /**
@@ -58,14 +72,471 @@ export interface AuthedSocketOptions {
 }
 
 export interface AuthedSocket {
-  socket: Socket;
-  /** Disconnect for good — a refresh still in flight will not reconnect it. */
+  socket: LiveSocket;
+  /** This listener is done: its listeners go, and the connection closes when no one is left. */
   close: () => void;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- see LiveSocket
+type Listener = (...args: any[]) => void;
+
+interface Handle {
+  opts: AuthedSocketOptions;
+  listeners: Map<string, Set<Listener>>;
+  rooms: Set<string>;
+  seenConnect: boolean;
+  closed: boolean;
+  facade: LiveSocket;
+}
+
+/** The connection's own events: never a listener's to add (they come through onConnect / onDisconnect). */
+const OWN_EVENTS = new Set(['connect', 'connect_error', 'disconnect']);
+const PRESENCE_EVENTS = ['presence:state', 'presence:online', 'presence:offline'] as const;
+
 /**
- * Open a socket.io connection that always authenticates with the *current* access token.
+ * Tabs share one connection (1.24.5): the tab holding the Web Lock `mico360-live:<person>` (the leader)
+ * keeps the socket; the others (followers) hear its events over a BroadcastChannel of the same name and
+ * tell it which project rooms they need. Messages:
+ *  - follower → leader: `need` (its rooms; also "is anyone there?"), `bye` (it has no listeners left);
+ *  - leader → all: `state` (connected or not, which connection, who is online), `ev` (an event), `beat`
+ *    (the server's ping: the leader is alive), `leader` (a new leader: say what you need).
+ * A visible follower that hears nothing for LEADER_SILENT_MS while online takes the lock over (a frozen
+ * leader tab); the old leader steps down when it hears of the new one.
+ */
+export const LEADER_SILENT_MS = 80_000;
+const SILENCE_CHECK_MS = 15_000;
+
+type TabMessage =
+  | { t: 'need'; tab: string; rooms: string[] }
+  | { t: 'bye'; tab: string }
+  | { t: 'state'; from: string; connected: boolean; conn: string | null; presence: string[] | null }
+  | { t: 'ev'; from: string; ev: string; args: unknown[] }
+  | { t: 'beat'; from: string }
+  | { t: 'leader'; from: string };
+
+interface LockManagerLike {
+  request(name: string, options: { signal?: AbortSignal; steal?: boolean }, callback: () => Promise<void>): Promise<unknown>;
+}
+
+interface Core {
+  /** Whose connection (the signed-in person's id when it opened). */
+  user: string;
+  /** This tab's id for the other tabs. */
+  tab: string;
+  handles: Set<Handle>;
+  /** solo: no tab sharing in this browser (or tests); leader: this tab holds the socket; follower: another tab does. */
+  mode: 'solo' | 'leader' | 'follower';
+  /** The socket (solo and leader). */
+  socket: Socket | null;
+  /** solo / leader: the events that have a socket listener (one each, handing them to the handles). */
+  attached: Set<string>;
+  /** solo / leader: the rooms the server has been asked for on this connection. */
+  sent: Set<string>;
+  /** leader: the rooms each follower tab needs. */
+  followers: Map<string, Set<string>>;
+  /** Which connection this tab's handles were last told of (null while down). */
+  conn: string | null;
+  /** Who is online, as this connection has heard it (null until the server says, on each connection). */
+  presence: Set<string> | null;
+  refresh: () => Promise<boolean>;
+  channel: BroadcastChannel | null;
+  locks: LockManagerLike | null;
+  /** Ends this tab's hold of the lock (leader), or its wait for it (follower). */
+  releaseLock: (() => void) | null;
+  lastHeard: number;
+  shut: () => void;
+}
+
+/** This tab's live connection (1.24.5), while anyone listens. */
+let core: Core | null = null;
+let connCounter = 0;
+
+const randomId = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+
+const roomOf = (args: unknown[]): string | null => {
+  const id = (args[0] as { projectId?: unknown } | null | undefined)?.projectId;
+  return typeof id === 'string' && id ? id : null;
+};
+
+/** Every room some handle of this tab wants. */
+const localRooms = (c: Core): Set<string> => {
+  const out = new Set<string>();
+  for (const h of c.handles) if (!h.closed) for (const r of h.rooms) out.add(r);
+  return out;
+};
+
+function post(c: Core, msg: TabMessage): void {
+  try {
+    c.channel?.postMessage(msg);
+  } catch {
+    // The other tabs are told next time.
+  }
+}
+
+/** solo / leader: join the rooms someone needs and leave the ones nobody does (once connected: before, the connect does it). */
+function syncRooms(c: Core): void {
+  if (!c.socket || c.conn === null) return;
+  const wanted = localRooms(c);
+  for (const set of c.followers.values()) for (const r of set) wanted.add(r);
+  for (const r of wanted) {
+    if (c.sent.has(r)) continue;
+    c.sent.add(r);
+    c.socket.emit('join', { projectId: r });
+  }
+  for (const r of [...c.sent]) {
+    if (wanted.has(r)) continue;
+    c.sent.delete(r);
+    c.socket.emit('leave', { projectId: r });
+  }
+}
+
+/** A room change of this tab's handles: the socket's rooms (solo / leader), or the leader is told (follower). */
+function roomsChanged(c: Core): void {
+  if (c.mode === 'follower') post(c, { t: 'need', tab: c.tab, rooms: [...localRooms(c)] });
+  else syncRooms(c);
+}
+
+/** Keep who is online (and hear that the person's companies changed), then hand the event to this tab's handles. */
+function deliver(c: Core, event: string, args: unknown[]): void {
+  if (event === 'companies:changed') companiesChanged();
+  else if (event === 'presence:state') {
+    const ids = (args[0] as { userIds?: unknown } | undefined)?.userIds;
+    c.presence = new Set(Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : []);
+  } else if (event === 'presence:online' || event === 'presence:offline') {
+    const id = (args[0] as { userId?: unknown } | undefined)?.userId;
+    if (c.presence && typeof id === 'string') {
+      if (event === 'presence:online') c.presence.add(id);
+      else c.presence.delete(id);
+    }
+  }
+  for (const h of [...c.handles]) {
+    if (h.closed) continue;
+    for (const fn of [...(h.listeners.get(event) ?? [])]) fn(...args);
+  }
+}
+
+/** The connection is up (`conn` names it): every handle is told; a different one than before is a reconnect. */
+function connectedAs(c: Core, conn: string): void {
+  if (c.conn === conn) return;
+  c.conn = conn;
+  for (const h of [...c.handles]) {
+    if (h.closed) continue;
+    const isReconnect = h.seenConnect;
+    h.seenConnect = true;
+    h.opts.onConnect?.(h.facade, isReconnect);
+  }
+}
+
+function droppedWith(c: Core, reason: string): void {
+  if (c.conn === null) return;
+  c.conn = null;
+  c.presence = null;
+  for (const h of [...c.handles]) if (!h.closed) h.opts.onDisconnect?.(reason);
+}
+
+/** solo / leader: one socket listener per event, handing it to this tab's handles. */
+function attach(c: Core, event: string): void {
+  if (!c.socket || c.attached.has(event)) return;
+  c.attached.add(event);
+  c.socket.on(event, (...args: unknown[]) => deliver(c, event, args));
+}
+
+/** Open the socket (solo, or as the tabs' leader) and wire it up. */
+function openSocket(c: Core): void {
+  const socket = io(SOCKET_URL, {
+    auth: (cb: (data: object) => void) => cb({ token: useAuthStore.getState().accessToken ?? '' }),
+  });
+  c.socket = socket;
+  c.attached = new Set();
+  c.sent = new Set();
+  const leading = c.mode === 'leader';
+  let authRetries = 0;
+  let refreshing = false;
+  let lastRefreshAt = 0;
+  let serverDisconnects: number[] = [];
+  let failingSince: number | null = null;
+  let conn: string | null = null;
+  const isMine = () => core === c && c.socket === socket;
+  const tellState = () => post(c, { t: 'state', from: c.tab, connected: !!conn, conn, presence: c.presence ? [...c.presence] : null });
+
+  socket.on('connect', () => {
+    if (!isMine()) return;
+    authRetries = 0;
+    failingSince = null;
+    // A new connection: the server holds none of the rooms, and says again who is online.
+    c.sent.clear();
+    c.presence = null;
+    conn = `${c.tab}:${++connCounter}`;
+    connectedAs(c, conn);
+    syncRooms(c);
+    if (leading) tellState();
+  });
+
+  socket.on('connect_error', (err: Error) => {
+    if (!isMine()) return;
+    if (!/unauthori[sz]ed/i.test(err?.message ?? '')) {
+      // Network trouble: socket.io retries itself. Still failing after a minute: blocked on the way?
+      const now = Date.now();
+      if (failingSince === null) failingSince = now;
+      else if (now - failingSince > SOCKET_TROUBLE_AFTER_MS) noteSocketTrouble();
+      return;
+    }
+    if (refreshing) return;
+    if (lastRefreshAt && Date.now() - lastRefreshAt < REVOKED_WITHIN_MS) {
+      c.shut();
+      useAuthStore.getState().logout('expired');
+      return;
+    }
+    if (authRetries >= MAX_AUTH_RETRIES) return;
+    authRetries += 1;
+    refreshing = true;
+    void refresh()
+      .then((ok) => {
+        if (!ok) return;
+        lastRefreshAt = Date.now();
+        if (isMine() && !socket.connected) socket.connect();
+      })
+      .catch(() => {})
+      .finally(() => {
+        refreshing = false;
+      });
+  });
+  const refresh = c.refresh;
+
+  socket.on('disconnect', (reason: string) => {
+    if (!isMine()) return;
+    c.sent.clear();
+    conn = null;
+    droppedWith(c, reason);
+    if (leading) tellState();
+    if (reason !== 'io server disconnect') return;
+    const now = Date.now();
+    serverDisconnects = serverDisconnects.filter((t) => now - t < 60_000);
+    if (serverDisconnects.length >= MAX_SERVER_RECONNECTS_PER_MIN) return;
+    serverDisconnects.push(now);
+    socket.connect();
+  });
+
+  if (leading && typeof socket.onAny === 'function') {
+    // Every event goes to this tab's handles and to the other tabs.
+    socket.onAny((event: string, ...args: unknown[]) => {
+      if (!isMine()) return;
+      deliver(c, event, args);
+      post(c, { t: 'ev', from: c.tab, ev: event, args });
+    });
+    c.attached = new Set(['*']);
+    // The server's ping (every 25 s): the leader is alive, whatever its timers.
+    try {
+      socket.io?.on?.('ping', () => {
+        if (isMine()) post(c, { t: 'beat', from: c.tab });
+      });
+    } catch {
+      // Without it, events and states still say the leader is there.
+    }
+  } else {
+    // Who is online: kept here, so a listener that comes after the connect is told too. The person's companies.
+    for (const ev of [...PRESENCE_EVENTS, 'companies:changed']) attach(c, ev);
+    for (const h of c.handles) for (const ev of h.listeners.keys()) attach(c, ev);
+  }
+}
+
+/** This tab became the leader: open the socket, and ask the other tabs what they need. */
+function lead(c: Core): void {
+  if (core !== c || c.mode === 'leader') return;
+  c.mode = 'leader';
+  c.followers = new Map();
+  if (c.conn) droppedWith(c, 'transport close');
+  openSocket(c);
+  post(c, { t: 'leader', from: c.tab });
+}
+
+/** Wait for the lock (or take it from a silent leader): holding it, this tab leads until it lets go. */
+function seekLock(c: Core, steal = false): void {
+  const locks = c.locks;
+  if (!locks) return;
+  c.releaseLock?.();
+  const stop = steal ? null : new AbortController();
+  let let_go: (() => void) | null = null;
+  const held = new Promise<void>((resolve) => {
+    let_go = resolve;
+  });
+  c.releaseLock = () => {
+    stop?.abort();
+    let_go?.();
+  };
+  const name = `mico360-live:${c.user}`;
+  try {
+    void locks
+      .request(name, steal ? { steal: true } : { signal: stop!.signal }, async () => {
+        if (core !== c) return;
+        lead(c);
+        await held;
+      })
+      .catch(() => {
+        // Let go of, or taken over: stepDown / shut say what happens next.
+      });
+  } catch {
+    // No lock after all: this tab keeps its own connection.
+    c.mode = 'solo';
+    openSocket(c);
+  }
+}
+
+/** Another tab leads now: close this tab's socket and follow it. */
+function stepDown(c: Core): void {
+  if (c.mode !== 'leader') return;
+  const s = c.socket;
+  c.socket = null;
+  c.mode = 'follower';
+  c.sent = new Set();
+  c.followers = new Map();
+  try {
+    s?.disconnect();
+  } catch {
+    // It is no longer this tab's.
+  }
+  droppedWith(c, 'transport close');
+  c.lastHeard = Date.now();
+  post(c, { t: 'need', tab: c.tab, rooms: [...localRooms(c)] });
+  seekLock(c);
+}
+
+function onTabMessage(c: Core, msg: TabMessage): void {
+  if (core !== c || !msg || typeof msg !== 'object') return;
+  if (c.mode === 'leader') {
+    if (msg.t === 'need') {
+      c.followers.set(msg.tab, new Set(Array.isArray(msg.rooms) ? msg.rooms.filter((r) => typeof r === 'string') : []));
+      syncRooms(c);
+      const conn = c.socket?.connected ? c.conn : null;
+      post(c, { t: 'state', from: c.tab, connected: !!conn, conn, presence: c.presence ? [...c.presence] : null });
+    } else if (msg.t === 'bye') {
+      c.followers.delete(msg.tab);
+      syncRooms(c);
+    } else if (msg.t === 'leader' && msg.from !== c.tab) stepDown(c);
+    return;
+  }
+  if (c.mode !== 'follower') return;
+  if (msg.t === 'need' || msg.t === 'bye') return;
+  c.lastHeard = Date.now();
+  if (msg.t === 'leader') {
+    post(c, { t: 'need', tab: c.tab, rooms: [...localRooms(c)] });
+  } else if (msg.t === 'state') {
+    if (msg.connected && msg.conn) {
+      const fresh = c.conn !== msg.conn;
+      if (fresh && Array.isArray(msg.presence)) c.presence = new Set(msg.presence);
+      connectedAs(c, msg.conn);
+      // Who is online, for this tab's listeners (a new connection says it again by itself).
+      if (fresh && c.presence) deliver(c, 'presence:state', [{ userIds: [...c.presence] }]);
+    } else droppedWith(c, 'transport close');
+  } else if (msg.t === 'ev' && typeof msg.ev === 'string') {
+    deliver(c, msg.ev, Array.isArray(msg.args) ? msg.args : []);
+  }
+}
+
+function browserLocks(): LockManagerLike | null {
+  try {
+    const locks = (globalThis.navigator as Navigator & { locks?: LockManagerLike } | undefined)?.locks;
+    return locks && typeof locks.request === 'function' && typeof BroadcastChannel === 'function' ? locks : null;
+  } catch {
+    return null;
+  }
+}
+
+function openCore(user: string, refresh: () => Promise<boolean>): Core {
+  const locks = browserLocks();
+  let channel: BroadcastChannel | null = null;
+  if (locks) {
+    try {
+      channel = new BroadcastChannel(`mico360-live:${user}`);
+    } catch {
+      channel = null;
+    }
+  }
+  let silenceTimer: ReturnType<typeof setInterval> | null = null;
+  const onHide = () => {
+    // A leader tab going away: the others hear it now (the lock goes with the page).
+    if (c.mode === 'leader') post(c, { t: 'state', from: c.tab, connected: false, conn: null, presence: null });
+  };
+  const c: Core = {
+    user,
+    tab: randomId(),
+    handles: new Set(),
+    mode: locks && channel ? 'follower' : 'solo',
+    socket: null,
+    attached: new Set(),
+    sent: new Set(),
+    followers: new Map(),
+    conn: null,
+    presence: null,
+    refresh,
+    channel,
+    locks: locks && channel ? locks : null,
+    releaseLock: null,
+    lastHeard: Date.now(),
+    shut: () => {
+      if (core === c) core = null;
+      if (c.mode === 'leader') post(c, { t: 'state', from: c.tab, connected: false, conn: null, presence: null });
+      else if (c.mode === 'follower') post(c, { t: 'bye', tab: c.tab });
+      const s = c.socket;
+      c.socket = null;
+      try {
+        s?.disconnect();
+      } catch {
+        // Closed already.
+      }
+      c.releaseLock?.();
+      c.releaseLock = null;
+      if (silenceTimer) clearInterval(silenceTimer);
+      try {
+        window.removeEventListener('pagehide', onHide);
+      } catch {
+        // No window.
+      }
+      try {
+        channel?.close();
+      } catch {
+        // Closed already.
+      }
+    },
+  };
+  if (c.mode === 'solo') {
+    openSocket(c);
+    return c;
+  }
+  channel!.onmessage = (e: MessageEvent) => onTabMessage(c, e.data as TabMessage);
+  try {
+    window.addEventListener('pagehide', onHide);
+  } catch {
+    // No window.
+  }
+  // Is a leader there? It answers with the connection's state.
+  post(c, { t: 'need', tab: c.tab, rooms: [] });
+  seekLock(c);
+  // A visible follower that hears nothing from the leader for long (a frozen tab) takes over.
+  silenceTimer = setInterval(() => {
+    try {
+      if (core !== c || c.mode !== 'follower') return;
+      if (document.visibilityState !== 'visible' || navigator.onLine === false) return;
+      if (Date.now() - c.lastHeard < LEADER_SILENT_MS) return;
+      c.lastHeard = Date.now();
+      seekLock(c, true);
+    } catch {
+      // Checked again next time.
+    }
+  }, SILENCE_CHECK_MS);
+  return c;
+}
+
+/**
+ * Open a listener on the live connection (socket.io), which always authenticates with the *current*
+ * access token.
  *
+ * - 1.24.5: ONE connection for the whole browser, not one per listener per tab. On long-polling (a host
+ *   whose proxy doesn't pass WebSockets) each connection holds one of the browser's ~6 connections to the
+ *   site, and with one per listener (the chat badge, the bell's reminders, the board…) in every open tab,
+ *   the page's other requests waited tens of seconds for a free one. Each listener has its own handle,
+ *   listeners and rooms; the tab's connection opens with the first and closes with the last; and where the
+ *   browser has Web Locks and BroadcastChannel, one tab (the leader) holds the socket for all tabs.
  * - `auth` is a callback, so every (re)connect handshake reads the token from the auth store
  *   instead of the one captured when the component mounted.
  * - When the server rejects the handshake as unauthorized (e.g. the 15-minute access token expired
@@ -78,74 +549,86 @@ export interface AuthedSocket {
  * - Transport errors are left to socket.io's own reconnection.
  */
 export function openAuthedSocket(opts: AuthedSocketOptions = {}): AuthedSocket {
-  const refresh = opts.refresh ?? refreshSession;
-  const socket = io(SOCKET_URL, {
-    auth: (cb: (data: object) => void) => cb({ token: useAuthStore.getState().accessToken ?? '' }),
-  });
-
-  let closed = false;
-  let connectedBefore = false;
-  let authRetries = 0;
-  let refreshing = false;
-  let lastRefreshAt = 0;
-  let serverDisconnects: number[] = [];
-  let failingSince: number | null = null;
-
-  socket.on('companies:changed', companiesChanged);
-
-  socket.on('connect', () => {
-    authRetries = 0;
-    failingSince = null;
-    const isReconnect = connectedBefore;
-    connectedBefore = true;
-    opts.onConnect?.(socket, isReconnect);
-  });
-
-  socket.on('connect_error', (err: Error) => {
-    if (!/unauthori[sz]ed/i.test(err?.message ?? '')) {
-      // Network trouble: socket.io retries itself. Still failing after a minute: blocked on the way?
-      const now = Date.now();
-      if (failingSince === null) failingSince = now;
-      else if (now - failingSince > SOCKET_TROUBLE_AFTER_MS) noteSocketTrouble();
-      return;
-    }
-    if (closed || refreshing) return;
-    if (lastRefreshAt && Date.now() - lastRefreshAt < REVOKED_WITHIN_MS) {
-      closed = true;
-      socket.disconnect();
-      useAuthStore.getState().logout('expired');
-      return;
-    }
-    if (authRetries >= MAX_AUTH_RETRIES) return;
-    authRetries += 1;
-    refreshing = true;
-    void refresh()
-      .then((ok) => {
-        if (!ok) return;
-        lastRefreshAt = Date.now();
-        if (!closed && !socket.connected) socket.connect();
-      })
-      .catch(() => {})
-      .finally(() => {
-        refreshing = false;
-      });
-  });
-
-  socket.on('disconnect', (reason: string) => {
-    if (!closed) opts.onDisconnect?.(reason);
-    if (reason !== 'io server disconnect' || closed) return;
-    const now = Date.now();
-    serverDisconnects = serverDisconnects.filter((t) => now - t < 60_000);
-    if (serverDisconnects.length >= MAX_SERVER_RECONNECTS_PER_MIN) return;
-    serverDisconnects.push(now);
-    socket.connect();
-  });
+  const user = useAuthStore.getState().user?.id ?? '';
+  // Another person's connection (signed out and in as someone else): theirs closes.
+  if (core && core.user !== user) core.shut();
+  const c = core ?? (core = openCore(user, opts.refresh ?? refreshSession));
+  const handle: Handle = { opts, listeners: new Map(), rooms: new Set(), seenConnect: false, closed: false, facade: null as unknown as LiveSocket };
+  const facade: LiveSocket = {
+    get connected() {
+      if (handle.closed) return false;
+      return c.mode === 'follower' ? c.conn !== null : Boolean(c.socket?.connected);
+    },
+    on(event, listener) {
+      if (handle.closed || OWN_EVENTS.has(event)) return facade;
+      let set = handle.listeners.get(event);
+      if (!set) handle.listeners.set(event, (set = new Set()));
+      set.add(listener);
+      if (c.mode === 'solo' || (c.mode === 'leader' && !c.attached.has('*'))) attach(c, event);
+      // Who is online was said at connect: a listener that comes later is told what this connection knows.
+      if (event === 'presence:state' && c.presence) {
+        const snapshot = { userIds: [...c.presence] };
+        queueMicrotask(() => {
+          if (!handle.closed && handle.listeners.get(event)?.has(listener)) listener(snapshot);
+        });
+      }
+      return facade;
+    },
+    emit(event, ...args) {
+      if (handle.closed) return facade;
+      const room = event === 'join' || event === 'leave' ? roomOf(args) : null;
+      if (room) {
+        const had = handle.rooms.has(room);
+        if (event === 'join') handle.rooms.add(room);
+        else handle.rooms.delete(room);
+        // A join of a room the server doesn't hold on this connection goes again (a re-join after a reconnect).
+        if (had !== (event === 'join') || (event === 'join' && c.mode !== 'follower' && !c.sent.has(room))) roomsChanged(c);
+      } else if (c.socket) c.socket.emit(event, ...args);
+      return facade;
+    },
+  };
+  handle.facade = facade;
+  c.handles.add(handle);
+  // Opened while the connection is already up: told so, once the caller has added its listeners.
+  if (c.conn !== null && (c.mode === 'follower' || c.socket?.connected)) {
+    const conn = c.conn;
+    queueMicrotask(() => {
+      if (handle.closed || handle.seenConnect || c.conn !== conn) return;
+      handle.seenConnect = true;
+      opts.onConnect?.(facade, false);
+    });
+  }
 
   return {
-    socket,
+    socket: facade,
     close: () => {
-      closed = true;
-      socket.disconnect();
+      if (handle.closed) return;
+      handle.closed = true;
+      c.handles.delete(handle);
+      const had = handle.rooms.size > 0;
+      handle.rooms.clear();
+      handle.listeners.clear();
+      if (c.handles.size === 0) {
+        c.shut();
+        return;
+      }
+      if (had) roomsChanged(c);
     },
   };
 }
+
+/** Tests: forget this tab's connection (each test's socket.io stand-in is its own). */
+export function resetLiveConnectionForTests(): void {
+  if (core) {
+    const c = core;
+    core = null;
+    try {
+      c.releaseLock?.();
+      c.channel?.close();
+    } catch {
+      // Gone already.
+    }
+  }
+}
+// The test setup forgets it after every test (test/setup.ts).
+if (import.meta.env.MODE === 'test') (globalThis as { __resetLiveConnection?: () => void }).__resetLiveConnection = resetLiveConnectionForTests;

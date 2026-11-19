@@ -16,3 +16,6 @@ window.scrollTo = (() => {}) as typeof window.scrollTo;
 if (!document.elementFromPoint) document.elementFromPoint = () => null;
 if (!Range.prototype.getClientRects) Range.prototype.getClientRects = () => ({ length: 0, item: () => null, [Symbol.iterator]: [][Symbol.iterator] }) as unknown as DOMRectList;
 if (!Range.prototype.getBoundingClientRect) Range.prototype.getBoundingClientRect = () => new DOMRect(0, 0, 0, 0);
+
+// 1.24.5: the tab's one live connection (lib/authedSocket) is shared by every listener; each test starts without one.
+afterEach(() => (globalThis as { __resetLiveConnection?: () => void }).__resetLiveConnection?.());
