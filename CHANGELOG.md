@@ -14,6 +14,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Bug fixes
+- Audit Logs: saving a person in User Management records only what really changed, as before → after (for example "lastName: A → Ahmed"). A Save that only changes the account status no longer adds an entry listing every field; the status entry itself now reads "status: Active → Suspended" style, before → after.
+
 ## [1.24.4] - 2026-11-19
 
 ### New features

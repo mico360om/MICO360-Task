@@ -21,7 +21,7 @@ const tokenService = createTokenService({
 });
 
 let mem: ReturnType<typeof createMemoryUserRepository>;
-let audit: { action: string; entityId: string | null; newValue: unknown; userId: string | null }[];
+let audit: { action: string; entityId: string | null; newValue: unknown; oldValue?: unknown; userId: string | null }[];
 let resets: string[];
 let resetAnswer: (id: string) => AdminResetOutcome;
 let mailOn: boolean;
@@ -51,8 +51,8 @@ async function makeApp() {
   mailOn = true;
   resetAnswer = (id) => ({ userId: id, email: 'x@y.co', sent: true, sentAt: '2026-11-07T08:00:00.000Z' });
   const auditService = {
-    async record(d: { action: string; entityId?: string | null; newValue?: unknown; userId?: string | null }) {
-      audit.push({ action: d.action, entityId: d.entityId ?? null, newValue: d.newValue, userId: d.userId ?? null });
+    async record(d: { action: string; entityId?: string | null; newValue?: unknown; oldValue?: unknown; userId?: string | null }) {
+      audit.push({ action: d.action, entityId: d.entityId ?? null, newValue: d.newValue, oldValue: d.oldValue, userId: d.userId ?? null });
       return {} as never;
     },
     async list() {
@@ -102,9 +102,9 @@ describe('Deactivate / reactivate with a reason', () => {
     const sara = await make();
     const res = await app.inject({ method: 'PATCH', url: `/api/v1/users/${sara.id}/status`, headers: await adminHeaders(), payload: { status: 'INACTIVE', reason: 'Left the company' } });
     expect(res.statusCode).toBe(200);
-    expect(audit.find((a) => a.action === 'user.status')).toMatchObject({ entityId: sara.id, newValue: { status: 'INACTIVE', previous: 'ACTIVE', reason: 'Left the company' } });
+    expect(audit.find((a) => a.action === 'user.status')).toMatchObject({ entityId: sara.id, oldValue: { status: 'ACTIVE' }, newValue: { status: 'INACTIVE', reason: 'Left the company' } });
     await app.inject({ method: 'PATCH', url: `/api/v1/users/${sara.id}/status`, headers: await adminHeaders(), payload: { status: 'ACTIVE' } });
-    expect(audit.filter((a) => a.action === 'user.status')[1]).toMatchObject({ newValue: { status: 'ACTIVE', previous: 'INACTIVE' } });
+    expect(audit.filter((a) => a.action === 'user.status')[1]).toMatchObject({ oldValue: { status: 'INACTIVE' }, newValue: { status: 'ACTIVE' } });
   });
 
   it('a reason longer than 300 characters is refused (400)', async () => {

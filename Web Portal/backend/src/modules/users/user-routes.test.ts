@@ -20,16 +20,16 @@ const tokenService = createTokenService({
 let mem: ReturnType<typeof createMemoryUserRepository>;
 let audited: { action: string; entityId: string | null }[];
 /** What each audited change recorded (its new values), in order. */
-let auditedValues: { action: string; entityId: string | null; newValue: unknown }[];
+let auditedValues: { action: string; entityId: string | null; newValue: unknown; oldValue?: unknown }[];
 
 async function makeApp() {
   mem = createMemoryUserRepository();
   audited = [];
   auditedValues = [];
   const auditService = {
-    async record(d: { action: string; entityId?: string | null; newValue?: unknown }) {
+    async record(d: { action: string; entityId?: string | null; newValue?: unknown; oldValue?: unknown }) {
       audited.push({ action: d.action, entityId: d.entityId ?? null });
-      auditedValues.push({ action: d.action, entityId: d.entityId ?? null, newValue: d.newValue });
+      auditedValues.push({ action: d.action, entityId: d.entityId ?? null, newValue: d.newValue, ...(d.oldValue !== undefined ? { oldValue: d.oldValue } : {}) });
       return {} as never;
     },
     async list() {
@@ -261,7 +261,7 @@ describe('“Show my projects only” from User Management → Manage account (1
   it('is saved with the rest of the form, and audited like other user changes', async () => {
     const { id } = await make(['ADMIN']);
     expect((await put(id, { firstName: 'Sarah', myProjectsOnly: true })).statusCode).toBe(200);
-    expect(auditedValues.filter((a) => a.action === 'user.update')).toEqual([{ action: 'user.update', entityId: id, newValue: { firstName: 'Sarah', myProjectsOnly: true, changed: ['firstName', 'myProjectsOnly'] } }]);
+    expect(auditedValues.filter((a) => a.action === 'user.update')).toEqual([{ action: 'user.update', entityId: id, oldValue: { firstName: 'Sara', myProjectsOnly: false }, newValue: { firstName: 'Sarah', myProjectsOnly: true } }]);
   });
 
   it('a change that doesn’t name it leaves it as it was', async () => {
@@ -325,7 +325,9 @@ describe('Training Center: Reports to, Training manager and Department in User M
     expect(res.json().data).toMatchObject({ reportsToId: boss, trainingManager: true });
     expect(await row(id)).toMatchObject({ reportsToId: boss, trainingManager: true });
     const entry = auditedValues.filter((a) => a.action === 'user.update').at(-1)!;
-    expect((entry.newValue as { changed: string[] }).changed.sort()).toEqual(['reportsToId', 'trainingManager']);
+    // 1.24.5: only what changed, before → after; Reports to by name.
+    expect(entry.oldValue).toEqual({ reportsTo: null, trainingManager: false });
+    expect(entry.newValue).toEqual({ reportsTo: 'Sara A', trainingManager: true });
     expect((await put(id, { reportsToId: null, trainingManager: false })).json().data).toMatchObject({ reportsToId: null, trainingManager: false });
   });
 
@@ -359,7 +361,9 @@ describe('Training Center: Reports to, Training manager and Department in User M
     expect(list.json().data.map((d: { name: string }) => d.name)).toEqual(['Engineering', 'Sales']);
     expect(await row(omar)).toMatchObject({ departmentName: 'Engineering' });
     const changed = auditedValues.filter((a) => a.action === 'user.update').at(-1)!;
-    expect((changed.newValue as { changed: string[] }).changed).toEqual(['departmentId']);
+    // 1.24.5: the department by name, before → after.
+    expect(changed.oldValue).toEqual({ department: 'Sales' });
+    expect(changed.newValue).toEqual({ department: 'Engineering' });
     expect((await put(id, { departmentName: '' })).json().data).toMatchObject({ departmentId: null, departmentName: null });
     expect((await put(omar, { departmentName: null })).json().data).toMatchObject({ departmentId: null, departmentName: null });
   });
@@ -770,5 +774,44 @@ describe('your own account and photo (avatar hotfix follow-ups, 11 Nov)', () => 
     const { a } = await appWithPhotos();
     const res = await a.inject({ method: 'GET', url: '/api/v1/users/me', headers: { authorization: `Bearer ${await tokenFor('cliff', ['CLIENT'])}` } });
     expect(res.statusCode).toBe(403);
+  });
+});
+
+describe('1.24.5: the audit log of a saved account lists only what really changed', () => {
+  const admin = async () => ({ authorization: `Bearer ${await token(['ADMIN'])}` });
+  const make = async (who: string, roleNames: string[] = ['EMPLOYEE']) =>
+    (await app.inject({ method: 'POST', url: '/api/v1/users', headers: await admin(), payload: { ...newUser, email: `${who}@x.co`, username: who, firstName: who === 'sara' ? 'Sara' : 'Omar', roleNames } })).json().data as { id: string };
+  const put = async (id: string, payload: Record<string, unknown>) => app.inject({ method: 'PUT', url: `/api/v1/users/${id}`, headers: await admin(), payload });
+  // What Manage account sends on every Save: the whole form, changed or not.
+  const wholeForm = { firstName: 'Sara', lastName: 'A', email: 'sara@x.co', username: 'sara', departmentId: null, roleNames: ['EMPLOYEE'], myProjectsOnly: false, reportsToId: null, trainingManager: false, appreciationManager: false, departmentName: '' };
+  const updates = () => auditedValues.filter((a) => a.action === 'user.update');
+
+  it('a Save that changes only the status records no profile change — the status entry says before → after', async () => {
+    const { id } = await make('sara');
+    expect((await put(id, wholeForm)).statusCode).toBe(200);
+    expect((await app.inject({ method: 'PATCH', url: `/api/v1/users/${id}/status`, headers: await admin(), payload: { status: 'SUSPENDED' } })).statusCode).toBe(200);
+    expect(updates()).toEqual([]);
+    expect(auditedValues.filter((a) => a.action === 'user.status')).toEqual([{ action: 'user.status', entityId: id, oldValue: { status: 'ACTIVE' }, newValue: { status: 'SUSPENDED' } }]);
+  });
+
+  it('the whole form with one field changed: only that field, before → after', async () => {
+    const { id } = await make('sara');
+    expect((await put(id, { ...wholeForm, lastName: 'Ahmed' })).statusCode).toBe(200);
+    expect(updates()).toEqual([{ action: 'user.update', entityId: id, oldValue: { lastName: 'A' }, newValue: { lastName: 'Ahmed' } }]);
+  });
+
+  it('roles before → after; an unchanged role list is left out', async () => {
+    const { id } = await make('sara');
+    await put(id, { ...wholeForm, roleNames: ['MANAGER', 'EMPLOYEE'] });
+    expect(updates().at(-1)).toEqual({ action: 'user.update', entityId: id, oldValue: { roles: ['EMPLOYEE'] }, newValue: { roles: ['EMPLOYEE', 'MANAGER'] } });
+    await put(id, { ...wholeForm, roleNames: ['EMPLOYEE', 'MANAGER'] });
+    expect(updates()).toHaveLength(1);
+  });
+
+  it('never records a password or a secret field, and nothing for a save that changes nothing', async () => {
+    const { id } = await make('sara');
+    await put(id, wholeForm);
+    await put(id, { firstName: 'Sara' });
+    expect(updates()).toEqual([]);
   });
 });

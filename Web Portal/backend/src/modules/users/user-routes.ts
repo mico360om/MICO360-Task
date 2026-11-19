@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import type { UserService } from './user-service';
+import type { UserSummary } from './user-repository';
 import type { AuthGuard } from '../auth/auth-guard';
 import type { AuditService } from '../audit/audit-service';
 import type { DataExporter } from './data-export';
@@ -174,8 +175,33 @@ export interface UserRouteDeps {
 export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDeps): Promise<void> {
   const { userService, guard } = deps;
   const adminOnly = { preHandler: guard.requireRoles('ADMIN') };
-  const logAudit = (req: FastifyRequest, action: string, entityId: string | null, newValue?: unknown) =>
-    deps.audit?.record({ userId: req.user?.id ?? null, ip: req.ip ?? null, module: 'users', action, entityId, newValue });
+  const logAudit = (req: FastifyRequest, action: string, entityId: string | null, newValue?: unknown, oldValue?: unknown) =>
+    deps.audit?.record({ userId: req.user?.id ?? null, ip: req.ip ?? null, module: 'users', action, entityId, newValue, ...(oldValue !== undefined ? { oldValue } : {}) });
+  /** A person's name for the audit log (Reports to); null: none, or no longer there. */
+  const personName = async (userId: string | null | undefined): Promise<string | null> => {
+    if (!userId) return null;
+    const u = await userService.getUser(userId).catch(() => null);
+    return u ? `${u.firstName} ${u.lastName}`.trim() || u.username : userId;
+  };
+  /** 1.24.5: a saved account's real changes, as { oldValue, newValue } of the changed fields only; null: none. */
+  const profileChanges = async (before: UserSummary, after: UserSummary) => {
+    const oldValue: Record<string, unknown> = {};
+    const newValue: Record<string, unknown> = {};
+    const note = (key: string, was: unknown, now: unknown) => {
+      if (JSON.stringify(was ?? null) === JSON.stringify(now ?? null)) return;
+      oldValue[key] = was ?? null;
+      newValue[key] = now ?? null;
+    };
+    for (const k of ['firstName', 'lastName', 'username', 'email', 'myProjectsOnly', 'trainingManager', 'appreciationManager'] as const) note(k, before[k], after[k]);
+    if ((before.departmentId ?? null) !== (after.departmentId ?? null)) note('department', before.departmentName ?? before.departmentId, after.departmentName ?? after.departmentId);
+    if ((before.reportsToId ?? null) !== (after.reportsToId ?? null)) note('reportsTo', await personName(before.reportsToId), await personName(after.reportsToId));
+    note('roles', before.roles.slice().sort(), after.roles.slice().sort());
+    const names = (u: UserSummary) => (u.companies ?? []).map((c) => c.name).sort((a, b) => a.localeCompare(b));
+    if (JSON.stringify((before.companies ?? []).map((c) => c.id).sort()) !== JSON.stringify((after.companies ?? []).map((c) => c.id).sort())) note('companies', names(before), names(after));
+    const primary = (u: UserSummary) => (u.primaryCompanyId ? (u.companies ?? []).find((c) => c.id === u.primaryCompanyId)?.name ?? u.primaryCompanyId : null);
+    if ((before.primaryCompanyId ?? null) !== (after.primaryCompanyId ?? null)) note('primaryCompany', primary(before), primary(after));
+    return Object.keys(newValue).length ? { oldValue, newValue } : null;
+  };
 
   // companies: `?companyId=<id>` the people in a company, `?companyId=none` those in none.
   app.get('/users', adminOnly, async (req) => {
@@ -428,11 +454,10 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
       await membership.set(id, companyIds, primaryCompanyId, { id: req.user!.id, roles: req.user!.roles ?? [] }, req.ip ?? null);
       updated = await userService.getUser(id);
     }
-    // Onboarding: which details really changed, by name.
-    const changed = (['firstName', 'lastName', 'username', 'email', 'departmentId', 'myProjectsOnly', 'reportsToId', 'trainingManager', 'appreciationManager'] as const).filter((k) => (before[k] ?? null) !== (updated[k] ?? null));
-    if (before.roles.slice().sort().join() !== updated.roles.slice().sort().join()) changed.push('roles' as never);
-    if (JSON.stringify((before.companies ?? []).map((c) => c.id).sort()) !== JSON.stringify((updated.companies ?? []).map((c) => c.id).sort()) || before.primaryCompanyId !== updated.primaryCompanyId) changed.push('companies' as never);
-    await logAudit(req, 'user.update', id, { ...(companiesChange ? { ...body, companyIds, primaryCompanyId } : body), ...(departmentName !== undefined ? { departmentName: cleanDepartmentName(departmentName) } : {}), changed });
+    // 1.24.5: only what really changed, before → after (Manage account sends the whole form on every Save);
+    // nothing changed (a Save that only changed the status, which has its own entry): no entry.
+    const diff = await profileChanges(before, updated);
+    if (diff) await logAudit(req, 'user.update', id, diff.newValue, diff.oldValue);
     return { data: updated };
   });
 
@@ -488,7 +513,8 @@ export async function registerUserRoutes(app: FastifyInstance, deps: UserRouteDe
     const { status, reason } = statusSchema.parse(req.body);
     const previous = (await userService.getUser(id)).status;
     const updated = await userService.setUserStatus(id, status);
-    await logAudit(req, 'user.status', id, { status, previous, ...(reason ? { reason } : {}) });
+    // 1.24.5: before → after.
+    await logAudit(req, 'user.status', id, { status, ...(reason ? { reason } : {}) }, { status: previous });
     return { data: updated };
   });
 
