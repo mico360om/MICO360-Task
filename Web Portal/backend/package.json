@@ -39,7 +39,7 @@
     "@fastify/helmet": "^13.1.1",
     "@fastify/multipart": "^10.1.1",
     "@fastify/rate-limit": "^11.2.0",
-    "@fastify/static": "^10.1.10",
+    "@fastify/static": "^10.1.12",
     "@prisma/client": "^5.22.0",
     "bcryptjs": "^2.4.3",
     "bidi-js": "1.0.3",

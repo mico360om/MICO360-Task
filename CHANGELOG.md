@@ -14,6 +14,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Security
+- Updated two libraries flagged by the hosting security scan: the website's page router (react-router 7.18.4 → 7.18.5, two high-severity advisories) and the server's file serving (@fastify/static 10.1.10 → 10.1.12, one moderate advisory).
+
 ### Bug fixes
 - Clients list (Admin → Third Party → Clients): the row buttons no longer run off the right edge (Delete was cut off at 1440 px and narrower). From 1440 px wide the table shows each client's email under the name and wraps the buttons inside the Actions column; on narrower windows each client is a card, two side by side, with every button shown. No sideways scrolling at any width, and the buttons are finger-sized on touch screens.
 - Menu: another person's KPIs page (opened from Workload, a project's team or Management) no longer highlights "My performance" — that item lights up on your own KPIs only. KPI targets keeps System Settings highlighted, and a project's KPIs tab keeps Projects.
