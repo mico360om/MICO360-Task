@@ -74,8 +74,9 @@ export function ActivityPage() {
     `rounded-full px-3 py-1 text-xs font-medium transition-colors [@media(pointer:coarse)]:!min-h-11 [@media(pointer:coarse)]:!min-w-11 ${active ? 'bg-brand text-white shadow-brand' : 'border border-line text-ink-2 hover:bg-ground'}`;
 
   return (
-    // A readable width on a wide screen (centred, as About): a feed line across a 1,900px window is hard to follow.
-    <div className="mx-auto max-w-4xl">
+    // The full content width, like the other list pages (owner, 19 Nov: "increase width"); the
+    // page frame already caps it at 1680px, and the calendar view gets room for its days.
+    <div>
       <PageHeader eyebrow="Workspace" title="Activity" subtitle="Who did what, across your tasks and projects." />
 
       {/* Nothing to filter yet (the feed came back empty): no filters over an empty page. */}

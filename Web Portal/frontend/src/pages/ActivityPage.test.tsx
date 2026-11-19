@@ -179,11 +179,9 @@ describe('ActivityPage', () => {
     expect(await screen.findByRole('link', { name: 'Create a project' })).toHaveAttribute('href', '/projects?new=1');
   });
 
-  it('keeps the feed at a readable width on a wide screen (centred, about 56rem)', async () => {
+  it('uses the full content width like the other list pages (owner, 19 Nov: "increase width")', async () => {
     const { container } = renderPage();
     await screen.findByText('Omar Ahmed');
-    const page = container.firstElementChild as HTMLElement;
-    expect(page.className).toMatch(/max-w-4xl/);
-    expect(page.className).toMatch(/mx-auto/);
+    expect(container.innerHTML).not.toMatch(/max-w-4xl/);
   });
 });
