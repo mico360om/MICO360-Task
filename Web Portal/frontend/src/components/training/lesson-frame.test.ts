@@ -18,8 +18,9 @@ describe('the lesson page’s frame (sticky panel and bar)', () => {
   it('only a page holding a lesson layout swaps hidden for clip (and only where clip exists)', () => {
     const rule = /@supports \(overflow-x: clip\) \{\s*main#main-content:has\(\[data-lesson-layout\]\) \{\s*overflow-x: clip;\s*\}\s*\}/;
     expect(css).toMatch(rule);
-    // No other rule changes main's overflow.
-    expect(css.match(/main#main-content/g)).toHaveLength(1);
+    // No other rule changes main's overflow — except 1.24.2's Appreciations Send page (its preview and action bar stick).
+    expect(css).toMatch(/@supports \(overflow-x: clip\) \{\s*main#main-content:has\(\[data-appreciation-send\]\) \{\s*overflow-x: clip;\s*\}\s*\}/);
+    expect(css.match(/main#main-content/g)).toHaveLength(2);
     expect(player).toMatch(/data-lesson-layout/);
   });
 });

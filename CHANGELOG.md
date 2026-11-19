@@ -14,6 +14,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Improvements
+- Appreciations → Send is redesigned in three numbered steps with a live preview. 1 People: search and company filter, "Select all shown" and "Clear", the people you picked as removable chips with a count, and each person with their photo (or initials), name and one company (plus "+2" when they work for more — point at it to see them all). 2 Template: cards showing each template's colour, icon and name, with "Manage templates". 3 Message & day: the words, colour, icon, animation and the day (shown as "Thu 20 Nov"). Beside them, the popup exactly as the first person will see it, with their name; on smaller screens it is a "Preview" section you can open. A bar at the bottom stays in view — "Schedule for 3 people on Thu 20 Nov" — and says what's still missing before it can be pressed. Fits phones, tablets and computers in light and dark.
+
 ## [1.24.1] - 2026-11-18
 
 ### Improvements

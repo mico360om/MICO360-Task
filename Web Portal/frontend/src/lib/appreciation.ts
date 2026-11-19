@@ -47,6 +47,16 @@ export function dayWords(day: string): string {
   return `${d} ${MONTHS[m - 1] ?? ''} ${y}`;
 }
 
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+/**
+ * 1.24.2: '2026-11-20' → 'Thu 20 Nov' (the Send page's day and action bar). The key is already a day in the company's
+ * calendar, so its weekday is the same in every time zone.
+ */
+export function dayShort(day: string): string {
+  const [y, m, d] = day.split('-').map(Number) as [number, number, number];
+  return `${WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()] ?? ''} ${d} ${MONTHS[m - 1] ?? ''}`;
+}
+
 /** The same filling the server does — for the Send tab's preview. */
 export function fillPlaceholders(text: string, v: { name: string; company: string; day: string }): string {
   return text.replace(/\{(name|company|date)\}/g, (_m, k: string) => (k === 'name' ? v.name : k === 'company' ? v.company : dayWords(v.day)));

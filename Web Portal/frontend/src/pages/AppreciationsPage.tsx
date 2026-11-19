@@ -1,10 +1,9 @@
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { apiClient } from '../api/client';
 import {
   appreciationsApi,
-  APPRECIATIONS_ME_KEY,
   type ApiAppreciationTemplate,
   type ApiManagedAppreciation,
   type AppreciationContent,
@@ -19,12 +18,12 @@ import { FieldLabel, fieldClass } from '../components/ui/Field';
 import { Toggle } from '../components/ui/Toggle';
 import { AppreciationPreview, ContentFields, FormDialog, LIMITS } from '../components/appreciation/AppreciationFields';
 import { AppreciationIconSvg } from '../components/appreciation/AppreciationArt';
+import { SendTab } from '../components/appreciation/SendAppreciation';
 import { useMyAppreciations } from '../components/appreciation/useMyAppreciations';
 import { ANIMATION_LABEL, APPRECIATION_STATUSES, dayWords, STATUS_TONE, STATUS_WORDS, themeGradient, type AppreciationStatus } from '../lib/appreciation';
 import { ApiError } from '../lib/api-client';
 import { downloadBlob } from '../lib/download';
 import { TOUCH_SQUARE, TOUCH_TALL } from '../lib/touch';
-import { useAuthStore } from '../stores/auth-store';
 import { AcceptNoteQuote, acceptedWords } from './MyAppreciationsPage';
 import { useCompanyTimeZone } from '../lib/company-clock';
 
@@ -45,18 +44,9 @@ const problemOf = (e: unknown) => (e instanceof Error && e.message ? e.message :
 const BLANK: AppreciationContent = { title: '', message: '', theme: 'ruby', icon: 'star', animation: 'confetti' };
 const contentOf = (t: AppreciationContent): AppreciationContent => ({ title: t.title, message: t.message, theme: t.theme, icon: t.icon, animation: t.animation });
 
-function useSettled(value: string, ms = 300): string {
-  const [settled, setSettled] = useState(value);
-  useEffect(() => {
-    const t = window.setTimeout(() => setSettled(value), ms);
-    return () => window.clearTimeout(t);
-  }, [value, ms]);
-  return settled;
-}
-
 /**
  * Employee Appreciation (1.24.0): the Appreciations page (Admin) — administrators and Appreciation managers. Send
- * (people, template, words, day, preview, Schedule), Scheduled & history (filters, Edit / Cancel before the day,
+ * (1.24.2: three steps + the popup's live preview, components/appreciation/SendAppreciation), Scheduled & history (filters, Edit / Cancel before the day,
  * Excel) and Templates (built-ins read-only — "Save as a copy" — and the company's own).
  */
 export function AppreciationsPage() {
@@ -100,151 +90,6 @@ export function AppreciationsPage() {
       <div id={`${tabsId}-panel`} role="tabpanel" aria-labelledby={`${tabsId}-${tab}`}>
         {tab === 'send' ? <SendTab today={mine.data.today} onSent={() => setParams({ tab: 'history' }, { replace: true })} /> : tab === 'history' ? <HistoryTab today={mine.data.today} /> : <TemplatesTab today={mine.data.today} />}
       </div>
-    </div>
-  );
-}
-
-// ── Send ─────────────────────────────────────────────────────────────────────
-function SendTab({ today, onSent }: { today: string; onSent: () => void }) {
-  const qc = useQueryClient();
-  const me = useAuthStore((s) => s.user);
-  const id = useId();
-  const [search, setSearch] = useState('');
-  const [companyId, setCompanyId] = useState('');
-  const settled = useSettled(search);
-  const companies = useQuery({ queryKey: KEYS.companies, queryFn: () => api.companies() });
-  const people = useQuery({ queryKey: KEYS.people(settled, companyId), queryFn: () => api.people(settled, companyId), placeholderData: keepPreviousData });
-  const templates = useQuery({ queryKey: KEYS.templates(false), queryFn: () => api.templates() });
-  const [picked, setPicked] = useState<Map<string, { name: string; company: { name: string; logoUrl: string | null } }>>(new Map());
-  const [templateId, setTemplateId] = useState<string>('');
-  const [content, setContent] = useState<AppreciationContent>(BLANK);
-  const [day, setDay] = useState(today);
-  const [problem, setProblem] = useState<string | null>(null);
-  const [done, setDone] = useState<string | null>(null);
-
-  // The first template once they arrive.
-  useEffect(() => {
-    const first = templates.data?.[0];
-    if (!templateId && first) {
-      setTemplateId(first.id);
-      setContent(contentOf(first));
-    }
-  }, [templates.data, templateId]);
-
-  const schedule = useMutation({
-    mutationFn: () => api.schedule({ ...content, recipientIds: [...picked.keys()], templateId: templateId || null, day }),
-    onSuccess: (r) => {
-      setDone(`Scheduled for ${r.ids.length} ${r.ids.length === 1 ? 'person' : 'people'} on ${dayWords(day)}.`);
-      setProblem(null);
-      setPicked(new Map());
-      void qc.invalidateQueries({ queryKey: ['appreciations'] });
-      void qc.invalidateQueries({ queryKey: APPRECIATIONS_ME_KEY });
-    },
-    onError: (e) => setProblem(problemOf(e)),
-  });
-
-  const first = [...picked.values()][0];
-  const toggle = (p: { id: string; name: string; companies: { id: string; name: string }[] }) =>
-    setPicked((old) => {
-      const n = new Map(old);
-      if (n.has(p.id)) n.delete(p.id);
-      else n.set(p.id, { name: p.name, company: { name: p.companies[0]?.name ?? 'Your company', logoUrl: null } });
-      return n;
-    });
-  const can = picked.size > 0 && content.title.trim() && content.message.trim() && day >= today;
-
-  return (
-    <div className="grid gap-5 lg:grid-cols-2">
-      <section className="card card-pad flex flex-col gap-3" aria-labelledby={`${id}-people`}>
-        <h2 id={`${id}-people`} className="eyebrow">1. People</h2>
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <div className="flex flex-1 flex-col gap-1">
-            <FieldLabel htmlFor={`${id}-search`}>Search</FieldLabel>
-            <input id={`${id}-search`} type="search" className={fieldClass(false)} value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Name or email" />
-          </div>
-          <div className="flex flex-col gap-1 sm:w-48">
-            <FieldLabel htmlFor={`${id}-company`}>Company</FieldLabel>
-            <select id={`${id}-company`} className={fieldClass(false)} value={companyId} onChange={(e) => setCompanyId(e.target.value)}>
-              <option value="">All my companies</option>
-              {(companies.data ?? []).map((c) => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-        {picked.size ? (
-          <ul className="flex flex-wrap gap-1.5" aria-label="Chosen people">
-            {[...picked.entries()].map(([pid, p]) => (
-              <li key={pid}>
-                <button type="button" onClick={() => setPicked((o) => { const n = new Map(o); n.delete(pid); return n; })} className={`inline-flex items-center gap-1 rounded-full bg-brand/10 px-2.5 py-1 text-xs font-medium text-brand ${TOUCH_TALL}`} aria-label={`Remove ${p.name}`}>
-                  <bdi>{p.name}</bdi> <span aria-hidden="true">×</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-        {people.isError ? (
-          <LoadError what="people" onRetry={() => void people.refetch()} />
-        ) : (
-          <fieldset className="max-h-72 overflow-y-auto rounded-xl border border-line" aria-label="People to appreciate">
-            {(people.data ?? []).length === 0 && !people.isPending ? <p className="p-3 text-sm text-ink-2">No one matches.</p> : null}
-            {(people.data ?? []).map((p) => (
-              <label key={p.id} className="flex min-h-11 cursor-pointer items-center gap-3 border-b border-line px-3 py-2 text-sm last:border-b-0 hover:bg-ground" data-person={p.id}>
-                <input type="checkbox" checked={picked.has(p.id)} onChange={() => toggle(p)} className="h-4 w-4 accent-[rgb(var(--c-brand))]" />
-                <bdi className="flex-1 text-ink">{p.name}</bdi>
-                <span className="truncate text-xs text-ink-2">{p.companies.map((c) => c.name).join(', ')}</span>
-              </label>
-            ))}
-          </fieldset>
-        )}
-      </section>
-
-      <section className="card card-pad flex flex-col gap-4" aria-labelledby={`${id}-words`}>
-        <h2 id={`${id}-words`} className="eyebrow">2. Template, words and day</h2>
-        <div className="flex flex-col gap-1">
-          <FieldLabel htmlFor={`${id}-template`}>Template</FieldLabel>
-          <select
-            id={`${id}-template`}
-            className={fieldClass(false)}
-            value={templateId}
-            onChange={(e) => {
-              setTemplateId(e.target.value);
-              const t = templates.data?.find((x) => x.id === e.target.value);
-              if (t) setContent(contentOf(t));
-            }}
-          >
-            {(templates.data ?? []).map((t) => (
-              <option key={t.id} value={t.id}>{t.name}</option>
-            ))}
-          </select>
-        </div>
-        <ContentFields value={content} onChange={setContent} />
-        <div className="flex flex-col gap-1">
-          <FieldLabel htmlFor={`${id}-day`} required>Day</FieldLabel>
-          <input id={`${id}-day`} type="date" className={fieldClass(day < today)} min={today} value={day} onChange={(e) => setDay(e.target.value)} />
-          <p className="text-xs text-ink-2">Shown all day, 00:00–23:59 company time. Today starts at once.</p>
-        </div>
-      </section>
-
-      <section className="card card-pad flex flex-col gap-3 lg:col-span-2" aria-labelledby={`${id}-preview`}>
-        <h2 id={`${id}-preview`} className="eyebrow">3. Preview</h2>
-        <AppreciationPreview value={content} name={first?.name ?? 'Sara Khan'} company={first?.company ?? { name: 'Contoso', logoUrl: null }} day={day || today} sender={me?.username ?? 'You'} />
-        {problem ? <p role="alert" className="rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">{problem}</p> : null}
-        <p role="status" aria-live="polite" className={done ? 'rounded-lg bg-success-soft px-3 py-2 text-sm text-success' : 'sr-only'}>
-          {done}
-          {done ? (
-            <>
-              {' '}
-              <button type="button" className="font-semibold underline" onClick={onSent}>See the history</button>
-            </>
-          ) : null}
-        </p>
-        <div className="flex justify-end">
-          <Button onClick={() => schedule.mutate()} loading={schedule.isPending} disabled={!can} className={TOUCH_TALL}>
-            {picked.size ? `Schedule for ${picked.size} ${picked.size === 1 ? 'person' : 'people'}` : 'Schedule'}
-          </Button>
-        </div>
-      </section>
     </div>
   );
 }
