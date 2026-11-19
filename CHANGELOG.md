@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.24.4] - 2026-11-19
+
 ### New features
 - "Download PDF" on seven Workspace pages: My performance (and a person's performance), Workload, Timeline, Calendar, Projects, Kanban Board (a project's board and All projects) and My Tasks. Each makes a landscape PDF that looks like the screen, with the company logo, the page's filters in its header, who made it and when, and page numbers: the KPI tiles with their targets and the trend as bars; the week's workload table; the timeline's bars, milestones and today line; the calendar as a month or week grid (a full day says "+N more" and is listed in full after it); the project cards; the board's columns side by side; and My Tasks in its groups. Long boards, calendars and timelines flow onto more pages without cutting a card or row. Each PDF shows exactly what the page shows you — nobody gets more from it. On a phone the button is an icon.
 
