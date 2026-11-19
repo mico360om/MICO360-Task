@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  APPRECIATION_ICONS,
+  APPRECIATION_THEMES,
+  BUILT_IN_ICON_UPGRADES,
   BUILT_IN_TEMPLATES,
   canManageAppreciations,
+  normaliseTheme,
   cleanNote,
   companyToday,
   noteNoticeTitle,
@@ -106,5 +110,34 @@ describe('the note for the manager (1.24.1)', () => {
     const t = noteNoticeTitle('N'.repeat(191), 'x'.repeat(500));
     expect([...t].length).toBeLessThanOrEqual(191);
     expect(t).toBe(`${'N'.repeat(60)}… accepted your appreciation: “${'x'.repeat(80)}…”`);
+  });
+});
+
+describe('colours and icons (1.24.4, owner 19 Nov)', () => {
+  it('fourteen named themes and twenty icons, each name fitting the VarChar(16) columns', () => {
+    expect(APPRECIATION_THEMES).toEqual(['ruby', 'ocean', 'emerald', 'amber', 'violet', 'slate', 'rose', 'coral', 'gold', 'lime', 'teal', 'sky', 'indigo', 'plum']);
+    expect(APPRECIATION_ICONS).toEqual([
+      'star', 'team', 'trophy', 'bulb', 'heart', 'medal',
+      'shield', 'clock', 'rocket', 'target', 'thumbs-up', 'handshake', 'crown', 'flag', 'gift', 'sparkles', 'award', 'lightning', 'smile', 'sun',
+    ]);
+    for (const n of [...APPRECIATION_THEMES, ...APPRECIATION_ICONS]) expect(n.length).toBeLessThanOrEqual(16);
+  });
+
+  it('a theme is a name or a custom colour #rrggbb (stored in lower case); anything else is refused', () => {
+    expect(normaliseTheme('ocean')).toBe('ocean');
+    expect(normaliseTheme('#1E6091')).toBe('#1e6091');
+    expect(normaliseTheme('#f5f5a0')).toBe('#f5f5a0');
+    for (const bad of ['neon', 'Ocean', '#fff', '#12345g', '1e6091', '#1e60911', ' #1e6091', '', 5, null, undefined]) expect(normaliseTheme(bad as never)).toBeNull();
+  });
+
+  it('the four built-ins with a better icon: new installs get it, and each upgrade names the old icon it replaces', () => {
+    const icon = (k: string) => BUILT_IN_TEMPLATES.find((t) => t.key === k)!.icon;
+    expect(BUILT_IN_ICON_UPGRADES).toEqual([
+      { key: 'safety-champion', from: 'medal', to: 'shield' },
+      { key: 'deadline-achiever', from: 'trophy', to: 'clock' },
+      { key: 'customer-hero', from: 'heart', to: 'handshake' },
+      { key: 'leadership', from: 'trophy', to: 'crown' },
+    ]);
+    for (const u of BUILT_IN_ICON_UPGRADES) expect(icon(u.key)).toBe(u.to);
   });
 });

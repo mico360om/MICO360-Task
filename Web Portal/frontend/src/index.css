@@ -735,6 +735,44 @@
   .appreciation-shimmer { display: none; }
 }
 
+/* 1.24.4: a themed band (banner, popup header, preview, template card, the Dashboard's welcome band). Its colours
+   come inline as variables from themeStyle() (lib/appreciation.ts): --ap-l1/--ap-l2 the gradient and --ap-li the
+   ink (space-separated RGB) in the light theme, --ap-d… in the dark one. A custom colour may take dark ink, so the
+   words and chips inside use the ink rather than white. */
+.ap-band {
+  --ap-from: var(--ap-l1, #9f1239);
+  --ap-to: var(--ap-l2, #b91c1c);
+  --ap-ink: var(--ap-li, 255 255 255);
+  --ap-veil: var(--ap-lv, 0 0 0);
+  background-image: linear-gradient(135deg, var(--ap-from), var(--ap-to));
+  color: rgb(var(--ap-ink));
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .ap-band {
+    --ap-from: var(--ap-d1, var(--ap-l1, #9f1239));
+    --ap-to: var(--ap-d2, var(--ap-l2, #b91c1c));
+    --ap-ink: var(--ap-di, var(--ap-li, 255 255 255));
+    --ap-veil: var(--ap-dv, var(--ap-lv, 0 0 0));
+  }
+}
+:root[data-theme='dark'] .ap-band {
+  --ap-from: var(--ap-d1, var(--ap-l1, #9f1239));
+  --ap-to: var(--ap-d2, var(--ap-l2, #b91c1c));
+  --ap-ink: var(--ap-di, var(--ap-li, 255 255 255));
+  --ap-veil: var(--ap-dv, var(--ap-lv, 0 0 0));
+}
+.ap-ink-90 { color: rgb(var(--ap-ink, 255 255 255) / 0.9); }
+/* Chips and ghost buttons lay the veil (the opposite of the ink) over the band, so their words only gain contrast. */
+.ap-chip { background-color: rgb(var(--ap-veil, 0 0 0) / 0.15); }
+.ap-veil-soft { background-color: rgb(var(--ap-veil, 0 0 0) / 0.1); }
+.ap-ghost {
+  border: 1px solid rgb(var(--ap-ink, 255 255 255) / 0.3);
+  background-color: rgb(var(--ap-veil, 0 0 0) / 0.1);
+  color: rgb(var(--ap-ink, 255 255 255));
+}
+.ap-ghost:hover { background-color: rgb(var(--ap-veil, 0 0 0) / 0.2); }
+.ap-band .ap-focus:focus-visible { outline-color: rgb(var(--ap-ink, 255 255 255)); }
+
 /* Respect users who prefer reduced motion: no transforms, no infinite loops, instant reveals. */
 @media (prefers-reduced-motion: reduce) {
   html {

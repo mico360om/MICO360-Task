@@ -3,7 +3,7 @@ import { useDialog } from '../../hooks/useDialog';
 import { ModalPortal } from '../ui/ModalPortal';
 import { Button } from '../ui/Button';
 import { dialogLayer, dialogPanel } from '../ui/dialog-size';
-import { themeGradient, dayWords } from '../../lib/appreciation';
+import { isCustomColour, themeStyle, dayWords } from '../../lib/appreciation';
 import { AppreciationIconSvg, CompanyMark, ConfettiBurst } from './AppreciationArt';
 import { useMyAppreciations } from './useMyAppreciations';
 import { NoteField } from './AcceptNote';
@@ -100,18 +100,18 @@ function PopupContent({
   const still = preview ? { tabIndex: -1 } : {};
   return (
     <>
-      <div className="relative flex-none overflow-hidden px-5 pb-5 pt-5 text-white" style={{ backgroundImage: themeGradient(a.theme) }}>
+      <div className="ap-band relative flex-none overflow-hidden px-5 pb-5 pt-5" style={themeStyle(a.theme)} data-popup-band>
         {a.animation === 'shimmer' ? <span className="appreciation-shimmer" aria-hidden="true" /> : null}
-        {preview ? <ConfettiBurst key={`${a.animation}-${a.theme}`} id={a.id} animation={a.animation} replay /> : <ConfettiBurst id={a.id} animation={a.animation} />}
+        {preview ? <ConfettiBurst key={`${a.animation}-${isCustomColour(a.theme) ? 'custom' : a.theme}`} id={a.id} animation={a.animation} replay /> : <ConfettiBurst id={a.id} animation={a.animation} />}
         <div className="relative flex items-center gap-3">
           <CompanyMark company={a.company} />
           <div className="min-w-0">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-white/90">
+            <p className="text-[11px] font-semibold uppercase tracking-wider ap-ink-90">
               <bdi>{a.company.name}</bdi> · {dayWords(a.day)}
             </p>
-            <p className="text-sm text-white">You’ve been appreciated</p>
+            <p className="text-sm">You’ve been appreciated</p>
           </div>
-          <span className="ms-auto grid h-12 w-12 flex-none place-items-center rounded-full bg-white/15">
+          <span className="ms-auto grid h-12 w-12 flex-none place-items-center ap-chip rounded-full">
             <AppreciationIconSvg icon={a.icon} size={26} />
           </span>
         </div>
