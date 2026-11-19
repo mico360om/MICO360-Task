@@ -14,7 +14,7 @@ export const NOTE_LABEL = 'Add a note for your manager (optional)';
  * 1.24.1 Appreciation note: the optional note for the manager, in the popup and in the banner's Accept dialog. Plain
  * text; trimmed when sent; it can't be changed after accepting.
  */
-export function NoteField({ value, onChange, disabled }: { value: string; onChange: (v: string) => void; disabled?: boolean }) {
+export function NoteField({ value, onChange, disabled, tabIndex }: { value: string; onChange: (v: string) => void; disabled?: boolean; tabIndex?: number }) {
   const id = useId();
   return (
     <div className="flex flex-col gap-1">
@@ -30,6 +30,7 @@ export function NoteField({ value, onChange, disabled }: { value: string; onChan
         className={fieldClass(false, 'resize-y')}
         value={value}
         disabled={disabled}
+        tabIndex={tabIndex}
         onChange={(e) => onChange(e.target.value)}
       />
       <p id={`${id}-count`} className="text-end text-xs text-ink-2">

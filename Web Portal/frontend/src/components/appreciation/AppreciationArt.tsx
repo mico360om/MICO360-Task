@@ -57,16 +57,17 @@ const COLOURS = ['#FDE68A', '#FCA5A5', '#A7F3D0', '#BFDBFE', '#DDD6FE', '#FFFFFF
 /**
  * A confetti burst over its parent (about 2 seconds, once per device per appreciation): a small canvas, no package.
  * Nothing at all when the person prefers reduced motion. `play` false: nothing (the shimmer is CSS).
+ * 1.24.2 `replay`: the Send page's preview plays it each time it mounts and never marks it played on this device.
  */
-export function ConfettiBurst({ id, animation }: { id: string; animation: AppreciationAnimation }) {
+export function ConfettiBurst({ id, animation, replay = false }: { id: string; animation: AppreciationAnimation; replay?: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const play = animation === 'confetti';
   useEffect(() => {
-    if (!play || prefersReducedMotion() || playedHere(id)) return;
+    if (!play || prefersReducedMotion() || (!replay && playedHere(id))) return;
     const canvas = ref.current;
     const ctx = canvas?.getContext?.('2d');
     if (!canvas || !ctx) return;
-    markPlayed(id);
+    if (!replay) markPlayed(id);
     const { width, height } = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
     canvas.width = width * dpr;
@@ -104,7 +105,7 @@ export function ConfettiBurst({ id, animation }: { id: string; animation: Apprec
     };
     frame = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(frame);
-  }, [id, play]);
+  }, [id, play, replay]);
   if (!play) return null;
   return <canvas ref={ref} data-confetti aria-hidden="true" className="pointer-events-none absolute inset-0 h-full w-full" />;
 }

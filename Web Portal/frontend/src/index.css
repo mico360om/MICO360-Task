@@ -781,3 +781,9 @@
     overflow-x: clip;
   }
 }
+/* 1.24.2: the same for the Appreciations Send page — its preview column and action bar stay in view. */
+@supports (overflow-x: clip) {
+  main#main-content:has([data-appreciation-send]) {
+    overflow-x: clip;
+  }
+}

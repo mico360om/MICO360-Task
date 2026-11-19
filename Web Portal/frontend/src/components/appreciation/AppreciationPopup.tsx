@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useDialog } from '../../hooks/useDialog';
 import { ModalPortal } from '../ui/ModalPortal';
 import { Button } from '../ui/Button';
@@ -39,59 +39,112 @@ function PopupFor({ a, onAccept, onClose, problem }: { a: ApiAppreciation; onAcc
           aria-describedby="appreciation-message"
           className={`card relative ${dialogPanel('small')} animate-scale-in flex flex-col overflow-hidden p-0 outline-none`}
         >
-          <div className="relative flex-none overflow-hidden px-5 pb-5 pt-5 text-white" style={{ backgroundImage: themeGradient(a.theme) }}>
-            {a.animation === 'shimmer' ? <span className="appreciation-shimmer" aria-hidden="true" /> : null}
-            <ConfettiBurst id={a.id} animation={a.animation} />
-            <div className="relative flex items-center gap-3">
-              <CompanyMark company={a.company} />
-              <div className="min-w-0">
-                <p className="text-[11px] font-semibold uppercase tracking-wider text-white/90">
-                  <bdi>{a.company.name}</bdi> · {dayWords(a.day)}
-                </p>
-                <p className="text-sm text-white">You’ve been appreciated</p>
-              </div>
-              <span className="ms-auto grid h-12 w-12 flex-none place-items-center rounded-full bg-white/15">
-                <AppreciationIconSvg icon={a.icon} size={26} />
-              </span>
-            </div>
-            <h2 id="appreciation-title" dir="auto" className="relative mt-4 font-display text-2xl font-extrabold tracking-tightish">
-              {a.title}
-            </h2>
-          </div>
-          <div className="min-h-0 overflow-y-auto p-5" data-popup-body>
-            <p id="appreciation-message" dir="auto" className="whitespace-pre-line text-base leading-relaxed text-ink">
-              {a.message}
-            </p>
-            <p className="mt-3 text-sm text-ink-2">
-              From <bdi className="font-semibold text-ink">{a.sender.name}</bdi>
-            </p>
-            <div className="mt-4">
-              <NoteField value={note} onChange={setNote} disabled={busy} />
-            </div>
-            {problem ? (
-              <p role="alert" className="mt-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
-                {problem}
-              </p>
-            ) : null}
-            <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-              <Button variant="secondary" onClick={onClose} disabled={busy} className="[@media(pointer:coarse)]:!min-h-11">
-                Close
-              </Button>
-              <Button
-                loading={busy}
-                className="[@media(pointer:coarse)]:!min-h-11"
-                onClick={async () => {
-                  setBusy(true);
-                  await onAccept(note);
-                  setBusy(false);
-                }}
-              >
-                Accept appreciation
-              </Button>
-            </div>
-          </div>
+          <PopupContent
+            a={a}
+            ids={{ title: 'appreciation-title', message: 'appreciation-message' }}
+            note={note}
+            onNote={setNote}
+            busy={busy}
+            problem={problem}
+            onClose={onClose}
+            onAccept={async () => {
+              setBusy(true);
+              await onAccept(note);
+              setBusy(false);
+            }}
+          />
         </div>
       </div>
     </ModalPortal>
+  );
+}
+
+/**
+ * 1.24.2: the Send page's live preview — the popup's own content, exactly as the person will see it, on the page
+ * (not a window). Its note box and buttons are only a picture: they can't be reached, pressed or read out. The
+ * confetti replays each time it is chosen, and never for people who ask for less motion.
+ */
+export function AppreciationPopupPreview({ a }: { a: ApiAppreciation }) {
+  const id = useId();
+  return (
+    <div role="group" aria-label="Preview of the popup" className="card flex flex-col overflow-hidden p-0" data-appreciation-preview>
+      <PopupContent a={a} ids={{ title: `${id}-title`, message: `${id}-message` }} preview note="" onNote={() => {}} busy={false} problem={null} onClose={() => {}} onAccept={() => {}} />
+    </div>
+  );
+}
+
+/** The popup's colour band, title, message, sender, note and buttons — shared by the popup and its preview. */
+function PopupContent({
+  a,
+  ids,
+  note,
+  onNote,
+  busy,
+  problem,
+  onClose,
+  onAccept,
+  preview = false,
+}: {
+  a: ApiAppreciation;
+  ids: { title: string; message: string };
+  note: string;
+  onNote: (v: string) => void;
+  busy: boolean;
+  problem: string | null;
+  onClose: () => void;
+  onAccept: () => void;
+  preview?: boolean;
+}) {
+  const Title = preview ? 'p' : 'h2';
+  // The preview's controls: shown, but out of the tab order and hidden from screen readers.
+  const still = preview ? { tabIndex: -1 } : {};
+  return (
+    <>
+      <div className="relative flex-none overflow-hidden px-5 pb-5 pt-5 text-white" style={{ backgroundImage: themeGradient(a.theme) }}>
+        {a.animation === 'shimmer' ? <span className="appreciation-shimmer" aria-hidden="true" /> : null}
+        {preview ? <ConfettiBurst key={`${a.animation}-${a.theme}`} id={a.id} animation={a.animation} replay /> : <ConfettiBurst id={a.id} animation={a.animation} />}
+        <div className="relative flex items-center gap-3">
+          <CompanyMark company={a.company} />
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-white/90">
+              <bdi>{a.company.name}</bdi> · {dayWords(a.day)}
+            </p>
+            <p className="text-sm text-white">You’ve been appreciated</p>
+          </div>
+          <span className="ms-auto grid h-12 w-12 flex-none place-items-center rounded-full bg-white/15">
+            <AppreciationIconSvg icon={a.icon} size={26} />
+          </span>
+        </div>
+        <Title id={ids.title} dir="auto" className="relative mt-4 break-words font-display text-2xl font-extrabold tracking-tightish">
+          {a.title}
+        </Title>
+      </div>
+      <div className={preview ? 'p-5' : 'min-h-0 overflow-y-auto p-5'} data-popup-body>
+        <p id={ids.message} dir="auto" className="whitespace-pre-line break-words text-base leading-relaxed text-ink">
+          {a.message}
+        </p>
+        <p className="mt-3 text-sm text-ink-2">
+          From <bdi className="font-semibold text-ink">{a.sender.name}</bdi>
+        </p>
+        <div aria-hidden={preview || undefined} className={preview ? 'pointer-events-none select-none' : undefined}>
+          <div className="mt-4">
+            <NoteField value={note} onChange={onNote} disabled={busy} tabIndex={preview ? -1 : undefined} />
+          </div>
+          {problem ? (
+            <p role="alert" className="mt-3 rounded-lg bg-danger-soft px-3 py-2 text-sm text-danger">
+              {problem}
+            </p>
+          ) : null}
+          <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button variant="secondary" onClick={onClose} disabled={busy} className="[@media(pointer:coarse)]:!min-h-11" {...still}>
+              Close
+            </Button>
+            <Button loading={busy} className="[@media(pointer:coarse)]:!min-h-11" onClick={onAccept} {...still}>
+              Accept appreciation
+            </Button>
+          </div>
+        </div>
+      </div>
+    </>
   );
 }
