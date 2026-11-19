@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useAuthStore } from '../stores/auth-store';
-import { openAuthedSocket } from './authedSocket';
+import { isOtherProjects, openAuthedSocket } from './authedSocket';
 import { TASK_EVENTS } from './useBoardRealtime';
 
 /** What changed in a project: its tasks, its meetings, its inspections, everything (after a reconnect), or your access. */
@@ -33,6 +33,8 @@ export function useProjectRealtime(projectId: string | undefined, onChange: (cha
 
   useEffect(() => {
     if (!signedIn || !projectId) return;
+    // 1.24.5: the tab's connection hears every room some listener joined: only this project's changes count.
+    const mine = [projectId];
     const { socket, close } = openAuthedSocket({
       onConnect: (s, isReconnect) => {
         s.emit('join', { projectId });
@@ -43,11 +45,19 @@ export function useProjectRealtime(projectId: string | undefined, onChange: (cha
     });
     for (const ev of TASK_EVENTS) {
       if (ev === 'resync') continue;
-      socket.on(ev, () => cb.current(ev === 'project:removed' ? 'removed' : 'tasks'));
+      socket.on(ev, (p?: unknown) => {
+        if (!isOtherProjects(p, mine)) cb.current(ev === 'project:removed' ? 'removed' : 'tasks');
+      });
     }
-    for (const ev of PROJECT_MEETING_EVENTS) socket.on(ev, () => cb.current('meetings'));
+    for (const ev of PROJECT_MEETING_EVENTS) {
+      socket.on(ev, (p?: unknown) => {
+        if (!isOtherProjects(p, mine)) cb.current('meetings');
+      });
+    }
     // Which inspection, so an open one refreshes only for itself.
-    socket.on('inspection:changed', (p?: { id?: unknown }) => cb.current('inspections', typeof p?.id === 'string' ? { id: p.id } : undefined));
+    socket.on('inspection:changed', (p?: { id?: unknown }) => {
+      if (!isOtherProjects(p, mine)) cb.current('inspections', typeof p?.id === 'string' ? { id: p.id } : undefined);
+    });
     return () => {
       setLive(false);
       close();

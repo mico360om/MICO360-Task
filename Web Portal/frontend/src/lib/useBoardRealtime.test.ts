@@ -135,3 +135,18 @@ describe('useBoardRealtime', () => {
     expect(refreshSession).toHaveBeenCalledTimes(1);
   });
 });
+
+// 1.24.5: the tab's one live connection is in every room some listener joined (the chat badge joins all of the
+// person's projects): a board hears only its own projects' changes.
+describe('useBoardRealtime: only its own projects', () => {
+  it('ignores a change in another project; one without a project still counts', () => {
+    const onTaskEvent = vi.fn();
+    renderHook(() => useBoardRealtime(['p1', 'p2'], onTaskEvent));
+    handlers['connect']?.();
+    handlers['task:created']?.({ id: 't1', projectId: 'p9' });
+    expect(onTaskEvent).not.toHaveBeenCalled();
+    handlers['task:created']?.({ id: 't2', projectId: 'p2' });
+    handlers['task:deleted']?.({ id: 't3' });
+    expect(onTaskEvent.mock.calls.map((c) => c[0])).toEqual(['task:created', 'task:deleted']);
+  });
+});

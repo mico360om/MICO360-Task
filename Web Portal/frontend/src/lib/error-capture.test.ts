@@ -234,7 +234,7 @@ describe('a site picture that fails for a moment', () => {
     img.dispatchEvent(new Event('error'));
     return img;
   };
-  const install = (pictureLoads: (url: string) => Promise<boolean>) => {
+  const install = (pictureLoads: (url: string) => Promise<'loaded' | 'skipped' | 'failed'>) => {
     uninstall();
     uninstall = installErrorCapture(window, { report: (r) => reports.push(r), flush: async () => {} }, { origin: window.location.origin, pictureLoads });
   };
@@ -243,7 +243,7 @@ describe('a site picture that fails for a moment', () => {
     const tried: string[] = [];
     install(async (url) => {
       tried.push(url);
-      return true;
+      return 'loaded';
     });
     const setSrc = vi.spyOn(HTMLImageElement.prototype, 'src', 'set');
     failImg('/assets/logo-GheeKhGJ.png');
@@ -254,21 +254,46 @@ describe('a site picture that fails for a moment', () => {
   });
 
   it('still failing: recorded as before', async () => {
-    install(async () => false);
+    install(async () => 'failed');
     failImg('/assets/logo-w-jZTCgZne.png');
     await vi.waitFor(() => expect(reports).toEqual([{ kind: 'BLOCKED', detail: 'resource', tag: 'img', resource: '/assets/logo-w-jZTCgZne.png' }]));
+  });
+
+  it('page hidden, left or offline meanwhile: neither shown again nor recorded (no endless tries)', async () => {
+    install(async () => 'skipped');
+    const setSrc = vi.spyOn(HTMLImageElement.prototype, 'src', 'set');
+    const img = failImg('/assets/logo-GheeKhGJ.png');
+    await new Promise((r) => setTimeout(r, 10));
+    expect(setSrc).toHaveBeenCalledTimes(1); // only failImg's own
+    expect(reports).toEqual([]);
+    expect(img).toBeTruthy();
+    setSrc.mockRestore();
+  });
+
+  it('shown again once: failing again after that is recorded, not tried again', async () => {
+    let tries = 0;
+    install(async () => {
+      tries++;
+      return 'loaded';
+    });
+    const img = failImg('/assets/logo-GheeKhGJ.png');
+    await vi.waitFor(() => expect(tries).toBe(1));
+    await new Promise((r) => setTimeout(r, 10));
+    img.dispatchEvent(new Event('error'));
+    await vi.waitFor(() => expect(reports).toEqual([{ kind: 'BLOCKED', detail: 'resource', tag: 'img', resource: '/assets/logo-GheeKhGJ.png' }]));
+    expect(tries).toBe(1);
   });
 
   it('retryPicture: tries a few times apart, and says whether it loaded', async () => {
     const waits: number[] = [];
     const answers = [false, false, true];
     const ok = await retryPicture('/assets/logo.png', { wait: async (ms) => void waits.push(ms), loads: async () => answers.shift() ?? false, onScreen: () => true });
-    expect(ok).toBe(true);
+    expect(ok).toBe('loaded');
     expect(waits).toEqual(PICTURE_RETRY_MS.slice(0, 3));
     const never = await retryPicture('/assets/logo.png', { wait: async () => {}, loads: async () => false, onScreen: () => true });
-    expect(never).toBe(false);
-    // A page that is left or hidden meanwhile: nothing to say (not a failure that stands).
+    expect(never).toBe('failed');
+    // A page that is left or hidden meanwhile: nothing to say.
     const away = await retryPicture('/assets/logo.png', { wait: async () => {}, loads: async () => false, onScreen: () => false });
-    expect(away).toBe(true);
+    expect(away).toBe('skipped');
   });
 });

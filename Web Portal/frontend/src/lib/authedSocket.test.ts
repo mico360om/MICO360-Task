@@ -268,3 +268,31 @@ describe('one live connection per tab', () => {
     expect([...(seen.mock.calls[0]![0] as { userIds: string[] }).userIds].sort()).toEqual(['u2', 'u3']);
   });
 });
+
+// 1.24.5 review: listeners share one connection now, so one that throws must not stop the others.
+describe('a listener that throws', () => {
+  it('doesn’t keep the event from the others, nor a connect from the rooms and the other listeners', () => {
+    const a = openAuthedSocket({ onConnect: () => { throw new Error('boom'); } });
+    const heard = vi.fn();
+    const told = vi.fn();
+    const b = openAuthedSocket({ onConnect: told });
+    a.socket.emit('join', { projectId: 'p1' });
+    a.socket.on('task:created', () => { throw new Error('boom'); });
+    b.socket.on('task:created', heard);
+    socket.emit.mockClear();
+    handlers['connect']!();
+    expect(told).toHaveBeenCalledTimes(1);
+    expect(socket.emit).toHaveBeenCalledWith('join', { projectId: 'p1' });
+    handlers['task:created']!({ id: 't1' });
+    expect(heard).toHaveBeenCalledWith({ id: 't1' });
+  });
+});
+
+// 1.24.5 review (hardening): a connection is one person's; another person signed in here closes it.
+describe('another person', () => {
+  it('signing in closes the connection opened for the one before', () => {
+    openAuthedSocket();
+    useAuthStore.getState().setSession({ user: { id: 'u2', email: 'b@b.c', username: 'bea', roles: [] }, accessToken: 'token-b', refreshToken: 'rt' });
+    expect(socket.disconnect).toHaveBeenCalled();
+  });
+});

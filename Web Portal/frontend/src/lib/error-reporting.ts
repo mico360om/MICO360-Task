@@ -103,7 +103,13 @@ export function installErrorReporting(opts: { baseUrl: string; getToken: () => s
       pictureLoads: (url) =>
         retryPicture(url, {
           wait: (ms) => new Promise((done) => window.setTimeout(done, ms)),
-          loads: async (u) => (await fetch(u, { cache: 'no-store' })).ok,
+          // Loaded and decoded as a picture (a 200 that isn't one, such as a portal page, is still a failure).
+          loads: async (u) => {
+            const probe = new Image();
+            probe.src = u;
+            await probe.decode();
+            return true;
+          },
           onScreen: () => !goingOrHidden() && navigator.onLine !== false,
         }),
     });

@@ -103,8 +103,10 @@ const PRESENCE_EVENTS = ['presence:state', 'presence:online', 'presence:offline'
  * A visible follower that hears nothing for LEADER_SILENT_MS while online takes the lock over (a frozen
  * leader tab); the old leader steps down when it hears of the new one.
  */
-export const LEADER_SILENT_MS = 80_000;
-const SILENCE_CHECK_MS = 15_000;
+export const LEADER_SILENT_MS = 60_000;
+const SILENCE_CHECK_MS = 10_000;
+/** A follower shown again (or back online) asks the leader; no answer this soon: it takes over (1.24.5 review). */
+export const LEADER_ANSWER_MS = 3_000;
 
 type TabMessage =
   | { t: 'need'; tab: string; rooms: string[] }
@@ -143,7 +145,15 @@ interface Core {
   locks: LockManagerLike | null;
   /** Ends this tab's hold of the lock (leader), or its wait for it (follower). */
   releaseLock: (() => void) | null;
+  /** The lock request this tab leads by (a taken lock rejects it: the tab steps down). */
+  lockToken: object | null;
+  /** follower: the tab it follows (messages from any other are ignored); null until one speaks. */
+  leaderTab: string | null;
   lastHeard: number;
+  /** follower: when the leader last said the connection's state. */
+  lastStateAt: number;
+  /** follower: when it last asked the leader (need). */
+  askedAt: number;
   shut: () => void;
 }
 
@@ -196,6 +206,19 @@ function roomsChanged(c: Core): void {
   else syncRooms(c);
 }
 
+/** Run a listener; one that throws never stops the others (it is still reported, as an uncaught error is). */
+function safely(fn: () => void): void {
+  try {
+    fn();
+  } catch (err) {
+    try {
+      (globalThis as { reportError?: (e: unknown) => void }).reportError?.(err);
+    } catch {
+      // Nothing more to do.
+    }
+  }
+}
+
 /** Keep who is online (and hear that the person's companies changed), then hand the event to this tab's handles. */
 function deliver(c: Core, event: string, args: unknown[]): void {
   if (event === 'companies:changed') companiesChanged();
@@ -211,7 +234,7 @@ function deliver(c: Core, event: string, args: unknown[]): void {
   }
   for (const h of [...c.handles]) {
     if (h.closed) continue;
-    for (const fn of [...(h.listeners.get(event) ?? [])]) fn(...args);
+    for (const fn of [...(h.listeners.get(event) ?? [])]) safely(() => fn(...args));
   }
 }
 
@@ -223,7 +246,7 @@ function connectedAs(c: Core, conn: string): void {
     if (h.closed) continue;
     const isReconnect = h.seenConnect;
     h.seenConnect = true;
-    h.opts.onConnect?.(h.facade, isReconnect);
+    safely(() => h.opts.onConnect?.(h.facade, isReconnect));
   }
 }
 
@@ -231,7 +254,7 @@ function droppedWith(c: Core, reason: string): void {
   if (c.conn === null) return;
   c.conn = null;
   c.presence = null;
-  for (const h of [...c.handles]) if (!h.closed) h.opts.onDisconnect?.(reason);
+  for (const h of [...c.handles]) if (!h.closed) safely(() => h.opts.onDisconnect?.(reason));
 }
 
 /** solo / leader: one socket listener per event, handing it to this tab's handles. */
@@ -321,8 +344,8 @@ function openSocket(c: Core): void {
     // Every event goes to this tab's handles and to the other tabs.
     socket.onAny((event: string, ...args: unknown[]) => {
       if (!isMine()) return;
-      deliver(c, event, args);
       post(c, { t: 'ev', from: c.tab, ev: event, args });
+      deliver(c, event, args);
     });
     c.attached = new Set(['*']);
     // The server's ping (every 25 s): the leader is alive, whatever its timers.
@@ -365,15 +388,18 @@ function seekLock(c: Core, steal = false): void {
     let_go?.();
   };
   const name = `mico360-live:${c.user}`;
+  const token = {};
   try {
     void locks
       .request(name, steal ? { steal: true } : { signal: stop!.signal }, async () => {
         if (core !== c) return;
+        c.lockToken = token;
         lead(c);
         await held;
       })
       .catch(() => {
-        // Let go of, or taken over: stepDown / shut say what happens next.
+        // Taken over by another tab while this one led by it: step down (a wait that was stopped is nothing).
+        if (core === c && c.mode === 'leader' && c.lockToken === token) stepDown(c);
       });
   } catch {
     // No lock after all: this tab keeps its own connection.
@@ -395,10 +421,25 @@ function stepDown(c: Core): void {
   } catch {
     // It is no longer this tab's.
   }
+  c.lockToken = null;
+  c.leaderTab = null;
   droppedWith(c, 'transport close');
   c.lastHeard = Date.now();
   post(c, { t: 'need', tab: c.tab, rooms: [...localRooms(c)] });
   seekLock(c);
+}
+
+/** follower: ask the leader for the connection's state; no answer within LEADER_ANSWER_MS: take over. */
+function askLeader(c: Core): void {
+  if (core !== c || c.mode !== 'follower') return;
+  const at = Date.now();
+  c.askedAt = at;
+  post(c, { t: 'need', tab: c.tab, rooms: [...localRooms(c)] });
+  setTimeout(() => {
+    if (core !== c || c.mode !== 'follower' || c.lastStateAt >= at) return;
+    c.lastHeard = Date.now();
+    seekLock(c, true);
+  }, LEADER_ANSWER_MS);
 }
 
 function onTabMessage(c: Core, msg: TabMessage): void {
@@ -412,15 +453,23 @@ function onTabMessage(c: Core, msg: TabMessage): void {
     } else if (msg.t === 'bye') {
       c.followers.delete(msg.tab);
       syncRooms(c);
-    } else if (msg.t === 'leader' && msg.from !== c.tab) stepDown(c);
+    } else if (msg.t === 'leader' && msg.from !== c.tab) {
+      stepDown(c);
+      c.leaderTab = msg.from;
+    }
     return;
   }
   if (c.mode !== 'follower') return;
   if (msg.t === 'need' || msg.t === 'bye') return;
+  // One leader at a time: a new one says so ('leader'); anything from another tab is a stale second copy.
+  if (msg.t === 'leader') c.leaderTab = msg.from;
+  else if (c.leaderTab === null) c.leaderTab = msg.from;
+  else if (msg.from !== c.leaderTab) return;
   c.lastHeard = Date.now();
   if (msg.t === 'leader') {
     post(c, { t: 'need', tab: c.tab, rooms: [...localRooms(c)] });
   } else if (msg.t === 'state') {
+    c.lastStateAt = Date.now();
     if (msg.connected && msg.conn) {
       const fresh = c.conn !== msg.conn;
       if (fresh && Array.isArray(msg.presence)) c.presence = new Set(msg.presence);
@@ -428,8 +477,13 @@ function onTabMessage(c: Core, msg: TabMessage): void {
       // Who is online, for this tab's listeners (a new connection says it again by itself).
       if (fresh && c.presence) deliver(c, 'presence:state', [{ userIds: [...c.presence] }]);
     } else droppedWith(c, 'transport close');
-  } else if (msg.t === 'ev' && typeof msg.ev === 'string') {
-    deliver(c, msg.ev, Array.isArray(msg.args) ? msg.args : []);
+  } else {
+    // The leader is there but this tab thinks the connection is down (it missed a state): ask again.
+    if (c.conn === null && Date.now() - c.askedAt > LEADER_ANSWER_MS) {
+      c.askedAt = Date.now();
+      post(c, { t: 'need', tab: c.tab, rooms: [...localRooms(c)] });
+    }
+    if (msg.t === 'ev' && typeof msg.ev === 'string') deliver(c, msg.ev, Array.isArray(msg.args) ? msg.args : []);
   }
 }
 
@@ -453,10 +507,38 @@ function openCore(user: string, refresh: () => Promise<boolean>): Core {
     }
   }
   let silenceTimer: ReturnType<typeof setInterval> | null = null;
-  const onHide = () => {
-    // A leader tab going away: the others hear it now (the lock goes with the page).
-    if (c.mode === 'leader') post(c, { t: 'state', from: c.tab, connected: false, conn: null, presence: null });
+  const stateNow = (): TabMessage => {
+    const conn = c.socket?.connected ? c.conn : null;
+    return { t: 'state', from: c.tab, connected: !!conn, conn, presence: c.presence ? [...c.presence] : null };
   };
+  const onHide = () => {
+    // Going away (or into the back/forward cache): a leader says the connection is down for the others now
+    // (the lock goes with the page), a follower gives up its rooms.
+    if (c.mode === 'leader') post(c, { t: 'state', from: c.tab, connected: false, conn: null, presence: null });
+    else if (c.mode === 'follower') post(c, { t: 'bye', tab: c.tab });
+  };
+  const onShow = (e: Event) => {
+    if (!(e as PageTransitionEvent).persisted) return;
+    // Back from the back/forward cache: a leader says how the connection is; a follower asks for its rooms again.
+    if (c.mode === 'leader') post(c, stateNow());
+    else if (c.mode === 'follower') askLeader(c);
+  };
+  const onShown = () => {
+    // Shown again, or back online: is the leader there? (A frozen or suspended one doesn't answer.)
+    if (document.visibilityState !== 'hidden' && navigator.onLine !== false) askLeader(c);
+  };
+  const listen = (on: boolean) => {
+    try {
+      const fn = on ? 'addEventListener' : 'removeEventListener';
+      window[fn]('pagehide', onHide);
+      window[fn]('pageshow', onShow);
+      window[fn]('online', onShown);
+      document[fn]('visibilitychange', onShown);
+    } catch {
+      // No window.
+    }
+  };
+  let unsubscribe: (() => void) | null = null;
   const c: Core = {
     user,
     tab: randomId(),
@@ -472,7 +554,11 @@ function openCore(user: string, refresh: () => Promise<boolean>): Core {
     channel,
     locks: locks && channel ? locks : null,
     releaseLock: null,
+    lockToken: null,
+    leaderTab: null,
     lastHeard: Date.now(),
+    lastStateAt: 0,
+    askedAt: 0,
     shut: () => {
       if (core === c) core = null;
       if (c.mode === 'leader') post(c, { t: 'state', from: c.tab, connected: false, conn: null, presence: null });
@@ -487,11 +573,8 @@ function openCore(user: string, refresh: () => Promise<boolean>): Core {
       c.releaseLock?.();
       c.releaseLock = null;
       if (silenceTimer) clearInterval(silenceTimer);
-      try {
-        window.removeEventListener('pagehide', onHide);
-      } catch {
-        // No window.
-      }
+      unsubscribe?.();
+      if (c.channel) listen(false);
       try {
         channel?.close();
       } catch {
@@ -499,17 +582,23 @@ function openCore(user: string, refresh: () => Promise<boolean>): Core {
       }
     },
   };
+  // 1.24.5 review (hardening): the connection is this person's; another person signed in here closes it.
+  try {
+    unsubscribe = useAuthStore.subscribe((state) => {
+      const id = state.user?.id;
+      if (id && id !== user) c.shut();
+    });
+  } catch {
+    unsubscribe = null;
+  }
   if (c.mode === 'solo') {
     openSocket(c);
     return c;
   }
   channel!.onmessage = (e: MessageEvent) => onTabMessage(c, e.data as TabMessage);
-  try {
-    window.addEventListener('pagehide', onHide);
-  } catch {
-    // No window.
-  }
+  listen(true);
   // Is a leader there? It answers with the connection's state.
+  c.askedAt = Date.now();
   post(c, { t: 'need', tab: c.tab, rooms: [] });
   seekLock(c);
   // A visible follower that hears nothing from the leader for long (a frozen tab) takes over.
@@ -619,16 +708,23 @@ export function openAuthedSocket(opts: AuthedSocketOptions = {}): AuthedSocket {
 
 /** Tests: forget this tab's connection (each test's socket.io stand-in is its own). */
 export function resetLiveConnectionForTests(): void {
-  if (core) {
-    const c = core;
-    core = null;
-    try {
-      c.releaseLock?.();
-      c.channel?.close();
-    } catch {
-      // Gone already.
-    }
+  const c = core;
+  core = null;
+  try {
+    c?.shut();
+  } catch {
+    // Gone already.
   }
 }
 // The test setup forgets it after every test (test/setup.ts).
 if (import.meta.env.MODE === 'test') (globalThis as { __resetLiveConnection?: () => void }).__resetLiveConnection = resetLiveConnectionForTests;
+
+/**
+ * 1.24.5: the live connection is in every room some listener joined (the chat badge joins all of the person's
+ * projects), so a listener of some projects' changes checks whose change it is: true for an event that names
+ * a project (`projectId`) not among `mine`. An event that names none is everyone's.
+ */
+export function isOtherProjects(payload: unknown, mine: readonly string[]): boolean {
+  const id = payload && typeof payload === 'object' ? (payload as { projectId?: unknown }).projectId : undefined;
+  return typeof id === 'string' && !mine.includes(id);
+}

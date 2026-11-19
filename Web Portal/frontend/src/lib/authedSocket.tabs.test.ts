@@ -230,6 +230,76 @@ describe('one live connection for all tabs', () => {
     await vi.waitFor(() => expect(changedInB).toHaveBeenCalledTimes(1), { timeout: 2000 });
   });
 
+  it('a listener that throws in the holding tab doesn’t keep the event from the other tabs', async () => {
+    const [a, b] = await twoTabs();
+    a.openAuthedSocket().socket.on('task:created', () => {
+      throw new Error('boom');
+    });
+    await vi.waitFor(() => expect(sockets).toHaveLength(1));
+    sockets[0]!.up();
+    const heard = vi.fn();
+    b.openAuthedSocket().socket.on('task:created', heard);
+    await new Promise((r) => setTimeout(r, 30));
+    sockets[0]!.fire('task:created', { id: 't1' });
+    await vi.waitFor(() => expect(heard).toHaveBeenCalledWith({ id: 't1' }));
+  });
+
+  it('hears only the tab it follows (never a second holder’s copies)', async () => {
+    const [a, b] = await twoTabs();
+    a.openAuthedSocket();
+    await vi.waitFor(() => expect(sockets).toHaveLength(1));
+    sockets[0]!.up();
+    const heard = vi.fn();
+    const onConnect = vi.fn();
+    b.openAuthedSocket({ onConnect }).socket.on('task:created', heard);
+    await vi.waitFor(() => expect(onConnect).toHaveBeenCalledTimes(1));
+    const intruder = new BroadcastChannel('mico360-live:u1');
+    intruder.postMessage({ t: 'ev', from: 'someone-else', ev: 'task:created', args: [{ id: 'x' }] });
+    intruder.postMessage({ t: 'state', from: 'someone-else', connected: true, conn: 'other:1', presence: null });
+    await new Promise((r) => setTimeout(r, 50));
+    intruder.close();
+    expect(heard).not.toHaveBeenCalled();
+    expect(onConnect).toHaveBeenCalledTimes(1);
+  });
+
+  it('a holding tab whose lock was taken steps down', async () => {
+    const [a] = await twoTabs();
+    a.openAuthedSocket();
+    await vi.waitFor(() => expect(sockets).toHaveLength(1));
+    sockets[0]!.up();
+    void locks.request('mico360-live:u1', { steal: true }, () => new Promise<void>(() => {}));
+    await vi.waitFor(() => expect(sockets[0]!.disconnect).toHaveBeenCalled());
+  });
+
+  it('a tab that is shown and gets no answer from a holder within seconds takes over', async () => {
+    // Someone holds the lock but never answers (a frozen tab).
+    void locks.request('mico360-live:u1', {}, () => new Promise<void>(() => {}));
+    const [, b] = await twoTabs();
+    b.openAuthedSocket();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(sockets).toHaveLength(0);
+    document.dispatchEvent(new Event('visibilitychange'));
+    await vi.waitFor(() => expect(sockets).toHaveLength(1), { timeout: 6000 });
+  });
+
+  it('a tab that goes away gives up its rooms; the holding tab coming back from the back/forward cache says it is connected', async () => {
+    const [a, b] = await twoTabs();
+    a.openAuthedSocket();
+    await vi.waitFor(() => expect(sockets).toHaveLength(1));
+    const s = sockets[0]!;
+    s.up();
+    const onConnect = vi.fn();
+    const inB = b.openAuthedSocket({ onConnect });
+    inB.socket.emit('join', { projectId: 'p1' });
+    await vi.waitFor(() => expect(s.emit).toHaveBeenCalledWith('join', { projectId: 'p1' }));
+    // (Both stand-in tabs share one window: pagehide is each tab's.)
+    window.dispatchEvent(new PageTransitionEvent('pagehide', { persisted: true }));
+    await vi.waitFor(() => expect(s.emit).toHaveBeenCalledWith('leave', { projectId: 'p1' }));
+    window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }));
+    await vi.waitFor(() => expect(onConnect.mock.calls.map((c) => c[1])).toEqual([false, true]));
+    await vi.waitFor(() => expect(s.emit.mock.calls.filter((c) => c[0] === 'join')).toHaveLength(2));
+  });
+
   it('keeps its own connection where the browser has no Web Locks', async () => {
     delete (navigator as unknown as { locks?: unknown }).locks;
     const [a, b] = await twoTabs();
