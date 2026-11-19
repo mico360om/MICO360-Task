@@ -258,6 +258,30 @@ function observePerformance(win: Window, sink: Sink, life: PageLifecycle): { fin
   };
 }
 
+/** 1.24.5: a site picture that failed is tried again after these waits (about a minute in all). */
+export const PICTURE_RETRY_MS: readonly number[] = [2_000, 8_000, 20_000, 30_000];
+
+/**
+ * 1.24.5 — the live Error log's "A picture file didn't load: /assets/logo-….png" (on /login, no one signed in):
+ * the logos are in the build, and failed for a moment (the site restarting for an update while the page came
+ * from the installed app's copy, or the connection). Try the picture again a few times apart: true when it
+ * loads ('loaded'), the page was left, hidden or offline meanwhile ('skipped': nothing that stands, nothing
+ * shown again), or it still fails ('failed').
+ */
+export type PictureRetry = 'loaded' | 'skipped' | 'failed';
+export async function retryPicture(url: string, world: { wait: (ms: number) => Promise<void>; loads: (url: string) => Promise<boolean>; onScreen: () => boolean }): Promise<PictureRetry> {
+  for (const ms of PICTURE_RETRY_MS) {
+    await world.wait(ms);
+    if (!world.onScreen()) return 'skipped';
+    try {
+      if (await world.loads(url)) return 'loaded';
+    } catch {
+      // Still failing: tried again next time.
+    }
+  }
+  return world.onScreen() ? 'failed' : 'skipped';
+}
+
 /**
  * Listens for what goes wrong on the page and hands it to the reporter: uncaught errors and promise
  * rejections (a failed load of the site's code after a deploy is a "chunk" error), the site's own
@@ -277,9 +301,16 @@ export function installErrorCapture(
     codeFailureStands?: () => Promise<boolean>;
     /** 1.23.14: whether the page was on screen (error-reporting shares one with the API requests); made here when absent. */
     lifecycle?: PageLifecycle;
+    /**
+     * 1.24.5: a site picture (/assets/) failed: is it fine when tried again (retryPicture)? Yes: it is shown
+     * again and not recorded. Absent: it is recorded at once (as before).
+     */
+    pictureLoads?: (url: string) => Promise<PictureRetry>;
   },
 ): () => void {
   const ownLifecycle = opts.lifecycle ? null : createPageLifecycle(win);
+  /** 1.24.5: the site pictures shown again after a failure (once each). */
+  const reshown = new Set<string>();
   const life = (opts.lifecycle ?? ownLifecycle)!;
   /** Report a code-loading failure only when it stands (the automatic reload can't help). */
   const reportCode = (report: ErrorReport) => {
@@ -311,7 +342,22 @@ export function installErrorCapture(
       if (path.startsWith('/uploads/') || path.startsWith('/api/')) return; // someone's picture, not the site's own files
       const blocked: ErrorReport = { kind: 'BLOCKED', detail: 'resource', tag: tag as 'script' | 'link' | 'img', resource: path };
       if (tag !== 'img' && path.startsWith('/assets/')) reportCode(blocked);
-      else sink.report(blocked);
+      else if (tag === 'img' && opts.pictureLoads && path.startsWith('/assets/') && !reshown.has(url)) {
+        // 1.24.5: a moment's failure (the site restarting for an update, the connection) is tried again;
+        // a picture is shown again once at most — failing after that, it is recorded.
+        const img = el as HTMLImageElement;
+        void opts.pictureLoads(url).then(
+          (result) => {
+            if (result === 'failed') return sink.report(blocked);
+            // Shown after all (still the same picture: the page may have moved on).
+            if (result === 'loaded' && img.isConnected && img.src === url) {
+              reshown.add(url);
+              img.src = url;
+            }
+          },
+          () => sink.report(blocked),
+        );
+      } else sink.report(blocked);
       return;
     }
     if (!(e instanceof ErrorEvent)) return;

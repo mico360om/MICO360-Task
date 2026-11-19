@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { openAuthedSocket } from './authedSocket';
+import { isOtherProjects, openAuthedSocket } from './authedSocket';
 
 /**
  * Every event the board reacts to: task events broadcast to the project room, `project:removed`
@@ -34,7 +34,9 @@ export function useBoardRealtime(projects: string | string[] | undefined, onTask
     });
     for (const ev of TASK_EVENTS) {
       if (ev === 'resync') continue;
-      socket.on(ev, (payload?: unknown) => cb.current(ev, payload));
+      socket.on(ev, (payload?: unknown) => {
+        if (!isOtherProjects(payload, ids)) cb.current(ev, payload);
+      });
     }
     return close;
   }, [roomKey]);

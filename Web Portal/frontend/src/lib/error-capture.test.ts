@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { installErrorCapture, isLeaving, layoutShiftScore, requestReport, serverTimingOf, SLOW } from './error-capture';
+import { installErrorCapture, isLeaving, layoutShiftScore, PICTURE_RETRY_MS, requestReport, retryPicture, serverTimingOf, SLOW } from './error-capture';
 import type { ErrorReport } from './error-reporter';
 
 let reports: ErrorReport[];
@@ -219,5 +219,81 @@ describe('layoutShiftScore: how much the layout jumped (the largest session of s
     expect(layoutShiftScore([{ startTime: 0, value: 0.5, hadRecentInput: true }])).toBe(0);
     const steady = Array.from({ length: 12 }, (_, i) => ({ startTime: i * 900, value: 0.05, hadRecentInput: false }));
     expect(layoutShiftScore(steady)).toBeCloseTo(0.3); // 0–4.5 s is one session (6 shifts), then a new one
+  });
+});
+
+// 1.24.5 (the Error log: "A picture file didn't load: /assets/logo-GheeKhGJ.png", on /login, no one signed in):
+// the logos are in the build; they failed for a moment (the site restarting for an update while the page came
+// from the installed app's copy). A site picture that fails is tried again; one that loads then is shown and
+// isn't recorded; one that still fails is.
+describe('a site picture that fails for a moment', () => {
+  const failImg = (src: string) => {
+    const img = document.createElement('img');
+    img.src = `${window.location.origin}${src}`;
+    document.body.appendChild(img);
+    img.dispatchEvent(new Event('error'));
+    return img;
+  };
+  const install = (pictureLoads: (url: string) => Promise<'loaded' | 'skipped' | 'failed'>) => {
+    uninstall();
+    uninstall = installErrorCapture(window, { report: (r) => reports.push(r), flush: async () => {} }, { origin: window.location.origin, pictureLoads });
+  };
+
+  it('loads when tried again: shown, and not recorded', async () => {
+    const tried: string[] = [];
+    install(async (url) => {
+      tried.push(url);
+      return 'loaded';
+    });
+    const setSrc = vi.spyOn(HTMLImageElement.prototype, 'src', 'set');
+    failImg('/assets/logo-GheeKhGJ.png');
+    await vi.waitFor(() => expect(setSrc).toHaveBeenCalledWith(`${window.location.origin}/assets/logo-GheeKhGJ.png`));
+    expect(tried).toEqual([`${window.location.origin}/assets/logo-GheeKhGJ.png`]);
+    expect(reports).toEqual([]);
+    setSrc.mockRestore();
+  });
+
+  it('still failing: recorded as before', async () => {
+    install(async () => 'failed');
+    failImg('/assets/logo-w-jZTCgZne.png');
+    await vi.waitFor(() => expect(reports).toEqual([{ kind: 'BLOCKED', detail: 'resource', tag: 'img', resource: '/assets/logo-w-jZTCgZne.png' }]));
+  });
+
+  it('page hidden, left or offline meanwhile: neither shown again nor recorded (no endless tries)', async () => {
+    install(async () => 'skipped');
+    const setSrc = vi.spyOn(HTMLImageElement.prototype, 'src', 'set');
+    const img = failImg('/assets/logo-GheeKhGJ.png');
+    await new Promise((r) => setTimeout(r, 10));
+    expect(setSrc).toHaveBeenCalledTimes(1); // only failImg's own
+    expect(reports).toEqual([]);
+    expect(img).toBeTruthy();
+    setSrc.mockRestore();
+  });
+
+  it('shown again once: failing again after that is recorded, not tried again', async () => {
+    let tries = 0;
+    install(async () => {
+      tries++;
+      return 'loaded';
+    });
+    const img = failImg('/assets/logo-GheeKhGJ.png');
+    await vi.waitFor(() => expect(tries).toBe(1));
+    await new Promise((r) => setTimeout(r, 10));
+    img.dispatchEvent(new Event('error'));
+    await vi.waitFor(() => expect(reports).toEqual([{ kind: 'BLOCKED', detail: 'resource', tag: 'img', resource: '/assets/logo-GheeKhGJ.png' }]));
+    expect(tries).toBe(1);
+  });
+
+  it('retryPicture: tries a few times apart, and says whether it loaded', async () => {
+    const waits: number[] = [];
+    const answers = [false, false, true];
+    const ok = await retryPicture('/assets/logo.png', { wait: async (ms) => void waits.push(ms), loads: async () => answers.shift() ?? false, onScreen: () => true });
+    expect(ok).toBe('loaded');
+    expect(waits).toEqual(PICTURE_RETRY_MS.slice(0, 3));
+    const never = await retryPicture('/assets/logo.png', { wait: async () => {}, loads: async () => false, onScreen: () => true });
+    expect(never).toBe('failed');
+    // A page that is left or hidden meanwhile: nothing to say.
+    const away = await retryPicture('/assets/logo.png', { wait: async () => {}, loads: async () => false, onScreen: () => false });
+    expect(away).toBe('skipped');
   });
 });

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { openAuthedSocket } from '../../lib/authedSocket';
+import { isOtherProjects, openAuthedSocket } from '../../lib/authedSocket';
 import { TASK_EVENTS } from '../../lib/useBoardRealtime';
 
 /** What changes someone's priorities in a project's room: task events, 1.23.3 checklist changes, inspections. */
@@ -23,7 +23,12 @@ export function usePrioritiesRealtime(projectIds: readonly string[] | undefined,
         if (isReconnect) cb.current();
       },
     });
-    for (const ev of PRIORITY_EVENTS) socket.on(ev, () => cb.current());
+    // 1.24.5: the tab's connection hears every room some listener joined: only these projects' changes count.
+    for (const ev of PRIORITY_EVENTS) {
+      socket.on(ev, (p?: unknown) => {
+        if (!isOtherProjects(p, ids)) cb.current();
+      });
+    }
     return close;
   }, [roomKey]);
 }

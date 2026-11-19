@@ -63,3 +63,19 @@ describe('useProjectRealtime', () => {
     expect(onChange).toHaveBeenCalledWith('removed');
   });
 });
+
+// 1.24.5: the tab's one live connection is in every room some listener joined: a project page hears only its own.
+describe('useProjectRealtime: only its own project', () => {
+  it('ignores another project’s tasks, meetings and inspections', () => {
+    const onChange = vi.fn();
+    renderHook(() => useProjectRealtime('p1', onChange));
+    act(() => handlers['connect']!());
+    handlers['task:moved']!({ id: 't1', projectId: 'p2' });
+    handlers['meeting:created']!({ id: 'm1', projectId: 'p2' });
+    handlers['inspection:changed']!({ id: 'i1', projectId: 'p2' });
+    handlers['project:removed']!({ projectId: 'p2' });
+    expect(onChange).not.toHaveBeenCalled();
+    handlers['task:moved']!({ id: 't1', projectId: 'p1' });
+    expect(onChange).toHaveBeenCalledWith('tasks');
+  });
+});
