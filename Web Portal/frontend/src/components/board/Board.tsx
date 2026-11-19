@@ -3,6 +3,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '../../api/client';
+import { pagePdfApi } from '../../api/page-pdfs';
+import { DownloadPdfButton } from '../ui/DownloadPdfButton';
+import { guestCategoryWords } from '../../lib/page-pdf-words';
 import { columnsApi, type ApiColumn } from '../../api/columns';
 import { tasksApi, type ApiTask } from '../../api/tasks';
 import type { ApiProject } from '../../api/projects';
@@ -641,7 +644,7 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
   // A read-only project's board has none.
   // s137: its only button is Manage columns (no New task of its own — the top bar's starts in this project, and
   // N opens it); without column rights there is nothing to place.
-  const actions = projectId && !locked && (settingsAdmin || project?.canManage === true) && !isAll ? (
+  const manage = projectId && !locked && (settingsAdmin || project?.canManage === true) && !isAll ? (
     <button
       onClick={() => setManageColumns((v) => !v)}
       aria-expanded={manageColumns}
@@ -649,6 +652,32 @@ export function Board({ projectId, projects, list, linking = false, hiddenProjec
     >
       {manageColumns ? 'Done' : 'Manage columns'}
     </button>
+  ) : null;
+  // 1.24.3 Download PDF: the day or month shown, its columns with the cards shown (filters and search applied), in words too.
+  const pdf = projectId ? (
+    <DownloadPdfButton
+      make={() =>
+        pagePdfApi(apiClient).board({
+          projectId,
+          ...(isMonth ? { month } : { date: boardDate }),
+          columns: boardColumns.map((c) => ({ id: c.id, keys: c.tasks.filter((t) => !t.leaving).map((t) => t.key) })),
+          filters: [
+            words.words.trim() ? `Search: “${words.words.trim()}”` : '',
+            ...guestCategoryWords(filterRows, picked, undefined, categoryChoices),
+            isMonth && showUndated ? 'With cards without dates' : '',
+            isAll && hiddenProjects.size ? `Left out: ${projects.filter((p) => hiddenProjects.has(p.id)).map((p) => p.name).join(', ')}` : '',
+          ].filter(Boolean),
+        })
+      }
+      fallbackName="Kanban Board.pdf"
+      disabled={loading || !!error}
+    />
+  ) : null;
+  const actions = manage || pdf ? (
+    <>
+      {manage}
+      {pdf}
+    </>
   ) : null;
 
   return (

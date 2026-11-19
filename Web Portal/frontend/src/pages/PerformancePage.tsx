@@ -4,6 +4,8 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { kpisApi, personKpiItemsKey, personKpisKey, type KpiTile } from '../api/kpis';
 import { PageHeader } from '../components/ui/PageHeader';
+import { DownloadPdfButton } from '../components/ui/DownloadPdfButton';
+import { pagePdfApi } from '../api/page-pdfs';
 import { LoadError } from '../components/ui/LoadError';
 import { Avatar } from '../components/ui/Avatar';
 import { ProjectAvatar } from '../components/ProjectAvatar';
@@ -59,7 +61,10 @@ export function PerformancePage() {
 
   return (
     <div data-page="performance">
-      <PageHeader eyebrow="Workspace" title={self ? 'My performance' : (data?.person.name ?? 'Performance')} subtitle={self ? 'Your KPIs: on time, days late, workload and more. Only you, the managers of your projects and administrators see them.' : 'Their KPIs, as their manager or an administrator sees them.'} />
+      <PageHeader eyebrow="Workspace" title={self ? 'My performance' : (data?.person.name ?? 'Performance')} subtitle={self ? 'Your KPIs: on time, days late, workload and more. Only you, the managers of your projects and administrators see them.' : 'Their KPIs, as their manager or an administrator sees them.'}
+        // 1.24.3: the period shown; the server reads the same KPIs as this page, as you.
+        actions={<DownloadPdfButton make={() => pagePdfApi(apiClient).performance(userId, period)} fallbackName={self ? 'My performance.pdf' : 'Performance.pdf'} disabled={!data || refused} />}
+      />
       {refused ? (
         <div role="alert" className="card card-pad text-sm text-ink">
           <p className="font-semibold">You can’t see this person’s performance.</p>

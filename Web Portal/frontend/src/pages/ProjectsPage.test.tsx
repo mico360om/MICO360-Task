@@ -710,3 +710,32 @@ describe('ProjectsPage with “Show my projects only” (1.22)', () => {
     expect(calls.some((c) => c.url.includes('?all=1'))).toBe(false);
   });
 });
+
+describe('ProjectsPage: Download PDF (1.24.3)', () => {
+  it('sends the cards shown, in their order, with the tab and filters in words', async () => {
+    Object.assign(URL, { createObjectURL: () => 'blob:x', revokeObjectURL: () => {} });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    renderPage('/projects?status=on-hold&owner=u2&sort=name');
+    await screen.findByRole('tablist');
+    await userEvent.click(await screen.findByRole('button', { name: 'Download PDF' }));
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/projects/overview.pdf'))).toBe(true));
+    const sent = calls.find((c) => c.url.endsWith('/projects/overview.pdf'))!;
+    expect(sent.method).toBe('POST');
+    expect(sent.body).toEqual({ tab: 'on-hold', ids: ['p3'], filters: ['Owner: Omar Said', 'Sort: Name'] });
+    click.mockRestore();
+  });
+
+  it('every card of “All”, most overdue first, and the search words', async () => {
+    Object.assign(URL, { createObjectURL: () => 'blob:x', revokeObjectURL: () => {} });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    renderPage('/projects?q=portal');
+    await screen.findByRole('tablist');
+    await userEvent.click(await screen.findByRole('button', { name: 'Download PDF' }));
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/projects/overview.pdf'))).toBe(true));
+    const sent = calls.find((c) => c.url.endsWith('/projects/overview.pdf'))!.body as { ids: string[]; filters: string[]; tab: string };
+    expect(sent.tab).toBe('all');
+    expect(sent.ids).toEqual(['p1']);
+    expect(sent.filters).toEqual(['Search: “portal”', 'Sort: Needs attention']);
+    click.mockRestore();
+  });
+});

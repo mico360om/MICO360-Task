@@ -24,6 +24,8 @@ import type { DragPayload } from '../lib/calendar-dnd';
 import { useDateSettings } from '../lib/useDatePrefs';
 import { invalidateTaskQueries } from '../lib/task-cache';
 import { PageTitle } from '../components/ui/PageHeader';
+import { DownloadPdfButton } from '../components/ui/DownloadPdfButton';
+import { pagePdfApi, type CalendarPdfAsk } from '../api/page-pdfs';
 import { useFrameOffset } from '../lib/useFrameOffset';
 import { useOpenTask } from '../lib/useOpenTask';
 import { NewTaskModal } from '../components/NewTaskModal';
@@ -107,6 +109,9 @@ const patchTask = (t: ApiTask, patch: DatesPayload | ApiTask): ApiTask => {
 
 /** A day's stored date ('YYYY-MM-DD' or an instant) as the calendar's day. */
 const dayOfValue = (value: string, timeZone: string) => (/^\d{4}-\d{2}-\d{2}$/.test(value) || value.endsWith('T00:00:00.000Z') ? value.slice(0, 10) : minutesAt(value, timeZone).day);
+
+/** 1.24.3: a status filter in words, for the PDF's header. */
+const PDF_STATUS_WORDS: Record<string, string> = { overdue: 'Overdue', todo: 'To do', 'in-progress': 'In progress', blocked: 'Blocked', done: 'Done' };
 
 export function CalendarPage() {
   const qc = useQueryClient();
@@ -867,6 +872,34 @@ export function CalendarPage() {
     </div>
   );
 
+  /** 1.24.3 Download PDF: each visible day's meetings and tasks as the page shows them, and the filters in words. */
+  const calendarPdfAsk = (): CalendarPdfAsk => {
+    const days: CalendarPdfAsk['days'] = [];
+    for (let d = from; d <= to; d = shiftDayKey(d, 1)) {
+      const items = [
+        ...(meetingsByDay.get(d) ?? []).map((m) => ({ kind: 'meeting' as const, id: m.id })),
+        ...(byDay.get(d) ?? []).map((i) => ({ kind: 'task' as const, id: i.task.id, status: i.status })),
+      ];
+      if (items.length) days.push({ day: d, items });
+    }
+    const word = (list: { value: string; label: string }[], v: string) => list.find((o) => o.value === v)?.label ?? v;
+    const filterWords = [
+      filters.projectId ? `Project: ${word(projectOptions, filters.projectId)}` : '',
+      filters.assigneeId ? `Assignee: ${word(assigneeOptions, filters.assigneeId)}` : '',
+      filters.mine ? 'My tasks' : '',
+      filters.q.trim() ? `Search: “${filters.q.trim()}”` : '',
+      filters.statuses.length ? `Status: ${filters.statuses.map((x) => PDF_STATUS_WORDS[x]).join(', ')}` : '',
+      filters.priorities.length ? `Priority: ${filters.priorities.map((x) => x.charAt(0) + x.slice(1).toLowerCase()).join(', ')}` : '',
+      filters.showCompleted ? '' : 'Completed hidden',
+      filters.showArchived ? 'With archived projects' : '',
+      filters.showProjected ? '' : 'Repeats to come hidden',
+      show.tasks ? '' : 'Tasks hidden',
+      show.meetings && filters.showMeetings ? '' : 'Meetings hidden',
+      team && range.team?.available ? 'Team view' : '',
+    ].filter(Boolean);
+    return { view, from, to, team: !!(team && range.team?.available), filters: filterWords, days };
+  };
+
   return (
     <div
       ref={pageRef}
@@ -897,6 +930,8 @@ export function CalendarPage() {
           layout={wide && view !== 'agenda' ? prefs.layout : undefined}
           onLayout={(l) => savePrefs.mutate({ layout: l })}
         />
+        {/* 1.24.3: the view and its days as shown (filters and Show applied), the filters in words. */}
+        <DownloadPdfButton make={() => pagePdfApi(apiClient).calendar(calendarPdfAsk())} fallbackName="Calendar.pdf" disabled={!rangeQ.data} />
       </div>
       <div className="relative z-20 flex-none">
         <CalendarFilterBar

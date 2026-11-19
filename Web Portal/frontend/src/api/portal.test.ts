@@ -15,6 +15,7 @@ function fakeClient() {
     upload: vi.fn() as ApiClient['upload'],
     getText: vi.fn() as ApiClient['getText'],
     getBlob: vi.fn(async (path: string) => (calls.push({ method: 'BLOB', path }), new Blob(['%PDF']))) as ApiClient['getBlob'],
+    postBlob: vi.fn() as ApiClient['postBlob'],
   };
   return { client, calls };
 }

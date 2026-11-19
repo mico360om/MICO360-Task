@@ -6,6 +6,8 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { apiClient } from '../api/client';
 import { planningApi, timelineKey, type TimelineProject } from '../api/planning';
 import { PageHeader } from '../components/ui/PageHeader';
+import { DownloadPdfButton } from '../components/ui/DownloadPdfButton';
+import { pagePdfApi } from '../api/page-pdfs';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Button } from '../components/ui/Button';
 import { LoadError } from '../components/ui/LoadError';
@@ -308,6 +310,22 @@ export function TimelinePage() {
               ))}
             </select>
           </div>
+          {/* 1.24.3: the weeks, owner, card filter and sort shown, and the projects whose tasks are open. */}
+          <DownloadPdfButton
+            make={() =>
+              pagePdfApi(apiClient).timeline({
+                from: data?.from ?? range.from,
+                to: data?.to ?? range.to,
+                weekStart,
+                owner,
+                show: state.show,
+                sort: state.sort,
+                expanded: shown.filter((p) => expanded.has(p.id)).map((p) => p.id),
+              })
+            }
+            fallbackName="Timeline.pdf"
+            disabled={!ready}
+          />
         </>
         }
       />

@@ -214,6 +214,8 @@ export interface ApiClient {
   getText(path: string): Promise<string>;
   /** GET a binary body (e.g. an Excel or PDF export) as a Blob, with auth attached. */
   getBlob(path: string): Promise<Blob>;
+  /** 1.24.3: POST a JSON body and get a binary answer (a page PDF made from what the page shows), with auth attached. */
+  postBlob(path: string, body: unknown): Promise<Blob>;
 }
 
 /** The app's client: also one bound to a person (a replayed offline change), sent only as them. */
@@ -567,6 +569,15 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
     return name ? new File([blob], name, { type: blob.type }) : blob;
   }
 
+  /** A download asked for with a JSON body (a page PDF); the server's file name kept, as getBlob. */
+  async function postBlob(path: string, body: unknown, asUser?: string): Promise<Blob> {
+    const res = await authedFetch('POST', path, { body }, asUser);
+    if (!res.ok) throw refusal(res.status, await res.text());
+    const blob = await res.blob();
+    const name = fileNameFromDisposition(res.headers.get('content-disposition'));
+    return name ? new File([blob], name, { type: blob.type }) : blob;
+  }
+
   /** The client's calls, as whoever is signed in (asUser undefined) or only as one person (forUser). */
   function clientFor(asUser?: string): ApiClient {
     return {
@@ -578,6 +589,7 @@ export function createApiClient({ baseUrl, getToken, refreshTokens, onUnauthoriz
       upload: (path, form, opts) => upload(path, form, opts, asUser),
       getText: (path) => getText(path, asUser),
       getBlob: (path) => getBlob(path, asUser),
+      postBlob: (path, body) => postBlob(path, body, asUser),
     };
   }
 

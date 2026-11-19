@@ -785,3 +785,25 @@ describe('CalendarPage — a long overdue list', () => {
     expect(within(overdue).getAllByRole('listitem')).toHaveLength(12);
   });
 });
+
+describe('CalendarPage: Download PDF (1.24.3)', () => {
+  it('sends the view, its days and what each day shows (its filters applied), and the filters in words', async () => {
+    Object.assign(URL, { createObjectURL: () => 'blob:x', revokeObjectURL: () => {} });
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    meetingRows = [meeting({})];
+    renderPage('/calendar?view=week&date=2026-10-14');
+    await chip(/Prepare report/);
+    await userEvent.click(screen.getByRole('button', { name: 'Download PDF' }));
+    await waitFor(() => expect(requests.some((r) => r.url.endsWith('/calendar.pdf'))).toBe(true));
+    const sent = requests.find((r) => r.url.endsWith('/calendar.pdf'))!;
+    expect(sent.method).toBe('POST');
+    const body = sent.body as { view: string; from: string; to: string; team: boolean; filters: string[]; days: { day: string; items: { kind: string; id: string; status?: string }[] }[] };
+    expect(body).toMatchObject({ view: 'week', from: '2026-10-11', to: '2026-10-17', team: false });
+    expect(body.filters).toEqual([]);
+    // The archived project's task isn't shown, so it isn't sent.
+    expect(body.days).toEqual([
+      { day: '2026-10-13', items: [{ kind: 'meeting', id: 'mt1' }] },
+      { day: '2026-10-14', items: [{ kind: 'task', id: 't1', status: 'todo' }] },
+    ]);
+  });
+});

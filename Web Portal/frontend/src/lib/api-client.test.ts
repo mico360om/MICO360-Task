@@ -216,6 +216,25 @@ describe('api client', () => {
     expect(fileNameOf(await api.getBlob('/reports/export.pdf'))).toBe('evil.pdf');
   });
 
+  it('postBlob sends JSON with auth and keeps the file name the server gives the download (1.24.3 page PDFs)', async () => {
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => new Response('%PDF', { status: 200, headers: { 'content-type': 'application/pdf', 'content-disposition': 'attachment; filename="Workload 2026-11-19.pdf"' } }));
+    vi.stubGlobal('fetch', fetchMock);
+    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => 'tok' });
+    const blob = await api.postBlob('/board.pdf', { projectId: 'p1', columns: [] });
+    expect(fileNameOf(blob)).toBe('Workload 2026-11-19.pdf');
+    const [url, init] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('http://api.test/board.pdf');
+    expect(init!.method).toBe('POST');
+    expect(JSON.parse(String(init!.body))).toEqual({ projectId: 'p1', columns: [] });
+    expect((init!.headers as Record<string, string>)['Authorization']).toBe('Bearer tok');
+  });
+
+  it('postBlob throws an ApiError with the server’s words on a refusal', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => jsonResponse({ error: { code: 'FORBIDDEN', message: 'You can’t see this.' } }, 403)));
+    const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => 'tok' });
+    await expect(api.postBlob('/board.pdf', {})).rejects.toMatchObject({ status: 403, code: 'FORBIDDEN' });
+  });
+
   it('getBlob throws an ApiError on a non-2xx response', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('nope', { status: 403 })));
     const api = createApiClient({ baseUrl: 'http://api.test', getToken: () => null });

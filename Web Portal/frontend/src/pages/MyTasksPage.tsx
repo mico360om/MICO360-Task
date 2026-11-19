@@ -7,6 +7,9 @@ import { useOpenTask } from '../lib/useOpenTask';
 import { SavedViewsBar } from '../components/SavedViewsBar';
 import { BulkTools } from '../components/bulk/BulkTools';
 import { PageHeader } from '../components/ui/PageHeader';
+import { DownloadPdfButton } from '../components/ui/DownloadPdfButton';
+import { pagePdfApi } from '../api/page-pdfs';
+import { chosenWords, guestCategoryWords } from '../lib/page-pdf-words';
 import { EmptyState } from '../components/ui/EmptyState';
 import { Button, buttonClass } from '../components/ui/Button';
 import { Link } from 'react-router-dom';
@@ -344,6 +347,30 @@ export function MyTasksPage() {
         title="My Tasks"
         learn="tasks"
         subtitle="Everything assigned to you, across every project."
+        // 1.24.3: the groups and rows shown, in their order, with the filters and sort in words.
+        actions={
+          <DownloadPdfButton
+            make={() =>
+              pagePdfApi(apiClient).myTasks({
+                groups: [
+                  { label: 'Your tasks', ids: todayRows.map((e) => e.task.id) },
+                  { label: 'Upcoming', ids: upcomingRows.map((e) => e.task.id) },
+                ].filter((g) => g.ids.length > 0),
+                filters: [
+                  chosenWords('Project', project, projectOptions),
+                  chosenWords('Status', status, statusOptions),
+                  chosenWords('Priority', priority, priorityOptions),
+                  chosenWords('Assignee', assignee, assigneeOptions),
+                  chosenWords('Due', due, DUE_OPTIONS),
+                  ...guestCategoryWords(tasks, picked, projectNameOf),
+                  `Sort: ${sortOptions.find((o) => o.value === sort)?.label ?? myTasksSortLabel(sort)}`,
+                ].filter(Boolean),
+              })
+            }
+            fallbackName="My Tasks.pdf"
+            disabled={!tasksQ.isSuccess}
+          />
+        }
       />
 
       {/* Tasks waiting for my approval (people who run a project, and admins). */}

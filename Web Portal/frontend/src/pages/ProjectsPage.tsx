@@ -6,6 +6,8 @@ import { apiClient } from '../api/client';
 import { ProjectCard } from '../components/projects/ProjectCard';
 import { ProjectFormDialog } from '../components/project-form/ProjectFormDialog';
 import { PageTitle } from '../components/ui/PageHeader';
+import { DownloadPdfButton } from '../components/ui/DownloadPdfButton';
+import { pagePdfApi } from '../api/page-pdfs';
 import { Button } from '../components/ui/Button';
 import { EmptyState } from '../components/ui/EmptyState';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
@@ -220,6 +222,24 @@ export function ProjectsPage() {
         <Button onClick={() => setForm('new')} title="New project" shortcut="new" className="[@media(pointer:coarse)]:!min-h-11">
           + New project
         </Button>
+        {/* 1.24.3: the cards shown, in their order, with the tab and filters in words. */}
+        <DownloadPdfButton
+          make={() =>
+            pagePdfApi(apiClient).projects({
+              tab: state.status,
+              ids: visible.map((p) => p.id),
+              filters: [
+                q.trim() ? `Search: “${q.trim()}”` : '',
+                owner ? `Owner: ${owners.find((o) => o.id === owner)?.name ?? 'the chosen owner'}` : '',
+                client ? `Client: ${client}` : '',
+                mineTicked ? 'Only my projects' : '',
+                `Sort: ${PROJECT_SORTS.find((x) => x.value === state.sort)?.label ?? 'Needs attention'}`,
+              ].filter(Boolean),
+            })
+          }
+          fallbackName="Projects.pdf"
+          disabled={!query.isSuccess}
+        />
       </div>
 
       {firstRun ? (

@@ -623,3 +623,16 @@ describe('TimelinePage — days off', () => {
     expect(within(screen.getByRole('list', { name: 'Legend' })).getByText('Day off')).toBeInTheDocument();
   });
 });
+
+describe('TimelinePage: Download PDF (1.24.3)', () => {
+  it('sends the weeks, owner, card filter and sort shown, and the projects whose tasks are open', async () => {
+    Object.assign(URL, { createObjectURL: () => 'blob:x', revokeObjectURL: () => {} });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    renderPage('/timeline?owner=u1&sort=name&show=at-risk');
+    await screen.findByRole('list', { name: 'Projects' });
+    await userEvent.click(screen.getByRole('button', { name: 'Tasks of Mobile App (Phase 2)' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Download PDF' }));
+    await waitFor(() => expect(requests.some((u) => u.endsWith('/timeline.pdf?from=2026-10-04&to=2027-01-02&weekStart=0&owner=u1&show=at-risk&sort=name&expanded=mob'))).toBe(true));
+    click.mockRestore();
+  });
+});

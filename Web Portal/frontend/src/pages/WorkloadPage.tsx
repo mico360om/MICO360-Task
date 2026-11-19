@@ -8,6 +8,8 @@ import { assigneesApi } from '../api/assignees';
 import { tasksApi } from '../api/tasks';
 import { systemSettingsApi } from '../api/system-settings';
 import { PageTitle } from '../components/ui/PageHeader';
+import { DownloadPdfButton } from '../components/ui/DownloadPdfButton';
+import { pagePdfApi } from '../api/page-pdfs';
 import { Avatar } from '../components/ui/Avatar';
 import { LoadError } from '../components/ui/LoadError';
 import { TaskDrawerContainer } from '../components/TaskDrawerContainer';
@@ -183,8 +185,10 @@ export function WorkloadPage() {
 
   return (
     <div>
-      <div className="relative z-20 mb-1 animate-fade-in-up">
+      <div className="relative z-20 mb-1 flex items-start justify-between gap-3 animate-fade-in-up">
         <PageTitle eyebrow="Workspace" title="Workload" />
+        {/* 1.24.3: the week, project and "Find a person" words shown. */}
+        <DownloadPdfButton make={() => pagePdfApi(apiClient).workload({ week, projectId: projectId || undefined, q })} fallbackName={`Workload ${week}.pdf`} disabled={!data} />
       </div>
       <p className="mb-4 text-sm text-ink-2">
         Open tasks due each day, per person. <span role="status">{data && !query.isError ? summaryLine(people, week === thisWeek) : ''}</span>

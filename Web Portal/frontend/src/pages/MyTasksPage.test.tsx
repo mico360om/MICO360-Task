@@ -451,3 +451,33 @@ describe('MyTasksPage: nothing assigned yet', () => {
     expect(screen.queryByRole('link', { name: 'Open the board' })).not.toBeInTheDocument();
   });
 });
+
+describe('MyTasksPage: Download PDF (1.24.3)', () => {
+  it('sends the groups and rows shown, in their order, and the sort in words', async () => {
+    Object.assign(URL, { createObjectURL: () => 'blob:x', revokeObjectURL: () => {} });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const t = (id: string, key: string, title: string, priority: string, dueDate: string | null) => ({ id, key, title, description: null, projectId: 'p1', columnId: 'c1', position: 0, priority, startDate: null, dueDate, progress: 40, completedAt: null, createdAt: '', updatedAt: '' });
+    const sent: { url: string; method: string; body: unknown }[] = [];
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
+      const u = String(url);
+      sent.push({ url: u, method: init?.method ?? 'GET', body: typeof init?.body === 'string' ? JSON.parse(init.body) : undefined });
+      if (u.includes('/tasks/mine.pdf')) return new Response('%PDF', { status: 200, headers: { 'content-type': 'application/pdf' } });
+      if (u.includes('/tasks/mine')) return json({ data: [t('t1', 'FIN-2', 'Later work', 'URGENT', '2026-09-20'), t('t2', 'FIN-3', 'Sooner work', 'LOW', '2026-09-06'), t('t3', 'FIN-4', 'Undated work', 'HIGH', null)] });
+      return json({ data: [] });
+    }));
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MemoryRouter initialEntries={['/my-tasks']}>
+          <MyTasksPage />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await screen.findByRole('button', { name: 'Later work' });
+    await userEvent.click(screen.getByRole('button', { name: 'Download PDF' }));
+    await waitFor(() => expect(sent.some((c) => c.url.endsWith('/tasks/mine.pdf'))).toBe(true));
+    const pdf = sent.find((c) => c.url.endsWith('/tasks/mine.pdf'))!;
+    expect(pdf.method).toBe('POST');
+    expect(pdf.body).toEqual({ groups: [{ label: 'Your tasks', ids: ['t2', 't1', 't3'] }], filters: ['Sort: Due date'] });
+    click.mockRestore();
+  });
+});

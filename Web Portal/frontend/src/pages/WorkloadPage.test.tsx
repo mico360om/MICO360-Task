@@ -371,3 +371,17 @@ describe('WorkloadPage', () => {
     expect(await screen.findByRole('table', { name: /Open tasks due each day, per person/ })).toBeInTheDocument();
   });
 });
+
+describe('WorkloadPage: Download PDF (1.24.3)', () => {
+  it('sends the week, the project and the “Find a person” words shown', async () => {
+    Object.assign(URL, { createObjectURL: () => 'blob:x', revokeObjectURL: () => {} });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    renderPage('/workload?week=2026-10-18&project=rig');
+    await waitFor(() => expect(rowNames().length).toBeGreaterThan(0));
+    await userEvent.type(screen.getByRole('searchbox', { name: 'Find a person' }), 'omar');
+    await userEvent.click(screen.getByRole('button', { name: 'Download PDF' }));
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/workload.pdf?week=2026-10-18&projectId=rig&q=omar'))).toBe(true));
+    await waitFor(() => expect(click).toHaveBeenCalled());
+    click.mockRestore();
+  });
+});

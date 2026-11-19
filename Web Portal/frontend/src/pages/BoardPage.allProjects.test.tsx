@@ -212,3 +212,38 @@ describe('Kanban Board with “Show my projects only” (1.22)', () => {
     expect(calls.some((c) => c.url.includes('/projects/p1/columns'))).toBe(false);
   });
 });
+
+describe('Kanban Board: Download PDF (1.24.3)', () => {
+  it('All projects: sends the day, the six columns with the cards shown in their order', async () => {
+    Object.assign(URL, { createObjectURL: () => 'blob:x', revokeObjectURL: () => {} });
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    renderPage();
+    await waitFor(() => expect(cardsIn('To Do')).toEqual(['OPS-1', 'MICO-1']));
+    await userEvent.click(screen.getByRole('button', { name: 'Download PDF' }));
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/board.pdf'))).toBe(true));
+    const sent = calls.find((c) => c.url.endsWith('/board.pdf'))!;
+    expect(sent.method).toBe('POST');
+    const body = sent.body as { projectId: string; date?: string; month?: string; columns: { id: string; keys: string[] }[]; filters: string[] };
+    expect(body.projectId).toBe('all');
+    expect(body.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(body.month).toBeUndefined();
+    expect(body.columns.map((c) => c.id)).toEqual(['status:BACKLOG', 'status:TODO', 'status:IN_PROGRESS', 'status:BLOCKED', 'status:REVIEW', 'status:DONE']);
+    expect(body.columns[1]!.keys).toEqual(['OPS-1', 'MICO-1']);
+    expect(body.columns[2]!.keys).toEqual(['MICO-2']);
+  });
+
+  it('a project’s board: its columns and the search in words', async () => {
+    Object.assign(URL, { createObjectURL: () => 'blob:x', revokeObjectURL: () => {} });
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    renderPage('/board?project=p1');
+    await screen.findByRole('region', { name: 'Doing' });
+    await userEvent.type(screen.getByRole('searchbox'), 'MICO-2');
+    await waitFor(() => expect(cardsIn('To Do')).toEqual([]));
+    await userEvent.click(screen.getByRole('button', { name: 'Download PDF' }));
+    await waitFor(() => expect(calls.some((c) => c.url.endsWith('/board.pdf'))).toBe(true));
+    const body = calls.find((c) => c.url.endsWith('/board.pdf'))!.body as { projectId: string; columns: { id: string; keys: string[] }[]; filters: string[] };
+    expect(body.projectId).toBe('p1');
+    expect(body.columns).toEqual([{ id: 'p1-todo', keys: [] }, { id: 'p1-doing', keys: ['MICO-2'] }]);
+    expect(body.filters).toContain('Search: “MICO-2”');
+  });
+});
