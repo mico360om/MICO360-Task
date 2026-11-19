@@ -1,5 +1,5 @@
 import { createErrorReporter, type ErrorReporter, type ReporterWorld } from './error-reporter';
-import { CHUNK_FAILURE, installErrorCapture, isLeaving } from './error-capture';
+import { CHUNK_FAILURE, installErrorCapture, isLeaving, retryPicture } from './error-capture';
 import { recoverChunk } from './update-recovery';
 import { createPageLifecycle, type PageLifecycle } from './page-lifecycle';
 import { createRequestWatch, type ResourceTimingLike } from './request-watch';
@@ -95,7 +95,18 @@ export function installErrorReporting(opts: { baseUrl: string; getToken: () => s
     const life = createPageLifecycle(window);
     // 1.23.2: a code file of an older build (gone after an update) is recorded only when the page can't
     // reload to the new build by itself. 1.23.14: page times only while the page is on screen.
-    installErrorCapture(window, r, { origin: window.location.origin, codeFailureStands: async () => (await recoverChunk()) === 'failed', lifecycle: life });
+    // 1.24.5: a site picture that failed for a moment (an update restart, the connection) is tried again first.
+    installErrorCapture(window, r, {
+      origin: window.location.origin,
+      codeFailureStands: async () => (await recoverChunk()) === 'failed',
+      lifecycle: life,
+      pictureLoads: (url) =>
+        retryPicture(url, {
+          wait: (ms) => new Promise((done) => window.setTimeout(done, ms)),
+          loads: async (u) => (await fetch(u, { cache: 'no-store' })).ok,
+          onScreen: () => !goingOrHidden() && navigator.onLine !== false,
+        }),
+    });
     const watch = createRequestWatch({
       lifecycle: life,
       online: () => navigator.onLine !== false,
