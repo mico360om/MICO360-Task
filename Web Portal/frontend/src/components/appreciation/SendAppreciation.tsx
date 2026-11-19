@@ -41,9 +41,13 @@ export const SEND_WIDE = '(min-width: 68.75em)';
  * 1.24.4: the room the Send page itself needs for two columns (the steps at least ~30rem, a 20 px gap, the 24rem
  * preview). The window alone isn't enough to go by: the open sidebar takes 240 px of it.
  */
-export const SEND_TWO_COLUMN_ROOM = 900;
+export const SEND_TWO_COLUMN_ROOM = 56.25; // rem (900 px at the usual 16 px; more with a larger browser text size)
 /** Two columns? By the page's own width once measured; until then (and where nothing is measured) by the window. */
-export const sendTwoColumns = (windowWide: boolean, room: number | null): boolean => (room == null ? windowWide : room >= SEND_TWO_COLUMN_ROOM);
+export const sendTwoColumns = (windowWide: boolean, room: number | null, remPx = 16): boolean => (room == null ? windowWide : room >= SEND_TWO_COLUMN_ROOM * remPx);
+const rootRemPx = () => {
+  const px = typeof document === 'undefined' ? NaN : parseFloat(getComputedStyle(document.documentElement).fontSize);
+  return Number.isFinite(px) && px > 0 ? px : 16;
+};
 const BLANK: AppreciationContent = { title: '', message: '', theme: 'ruby', icon: 'star', animation: 'confetti' };
 const contentOf = (t: AppreciationContent): AppreciationContent => ({ title: t.title, message: t.message, theme: t.theme, icon: t.icon, animation: t.animation });
 const problemOf = (e: unknown) => (e instanceof Error && e.message ? e.message : 'Something went wrong. Please try again.');
@@ -76,7 +80,7 @@ export function SendTab({ today, onSent }: { today: string; onSent: () => void }
   const id = useId();
   const windowWide = useMediaQuery(SEND_WIDE, true);
   const pageRef = useRef<HTMLDivElement>(null);
-  const wide = sendTwoColumns(windowWide, useElementWidth(pageRef));
+  const wide = sendTwoColumns(windowWide, useElementWidth(pageRef), rootRemPx());
   const [search, setSearch] = useState('');
   const [companyId, setCompanyId] = useState('');
   const settled = useSettled(search);

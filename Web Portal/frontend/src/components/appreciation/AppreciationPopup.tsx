@@ -3,7 +3,7 @@ import { useDialog } from '../../hooks/useDialog';
 import { ModalPortal } from '../ui/ModalPortal';
 import { Button } from '../ui/Button';
 import { dialogLayer, dialogPanel } from '../ui/dialog-size';
-import { themeStyle, dayWords } from '../../lib/appreciation';
+import { isCustomColour, themeStyle, dayWords } from '../../lib/appreciation';
 import { AppreciationIconSvg, CompanyMark, ConfettiBurst } from './AppreciationArt';
 import { useMyAppreciations } from './useMyAppreciations';
 import { NoteField } from './AcceptNote';
@@ -102,7 +102,7 @@ function PopupContent({
     <>
       <div className="ap-band relative flex-none overflow-hidden px-5 pb-5 pt-5" style={themeStyle(a.theme)} data-popup-band>
         {a.animation === 'shimmer' ? <span className="appreciation-shimmer" aria-hidden="true" /> : null}
-        {preview ? <ConfettiBurst key={`${a.animation}-${a.theme}`} id={a.id} animation={a.animation} replay /> : <ConfettiBurst id={a.id} animation={a.animation} />}
+        {preview ? <ConfettiBurst key={`${a.animation}-${isCustomColour(a.theme) ? 'custom' : a.theme}`} id={a.id} animation={a.animation} replay /> : <ConfettiBurst id={a.id} animation={a.animation} />}
         <div className="relative flex items-center gap-3">
           <CompanyMark company={a.company} />
           <div className="min-w-0">

@@ -136,6 +136,10 @@ describe('shared with the server', () => {
     expect(list('APPRECIATION_ICONS')).toEqual([...APPRECIATION_ICONS]);
     expect(list('APPRECIATION_ANIMATIONS')).toEqual([...APPRECIATION_ANIMATIONS]);
     expect(list('APPRECIATION_STATUSES')).toEqual([...APPRECIATION_STATUSES]);
+    // 1.24.4: the custom colour's pattern is the same on both sides.
+    const web = readFileSync(join(__dirname, '../../lib/appreciation.ts'), 'utf8');
+    expect(server).toContain('export const CUSTOM_COLOUR = /^#[0-9a-f]{6}$/i;');
+    expect(web).toContain('const HEX = /^#[0-9a-f]{6}$/i;');
   });
   it('placeholders fill as on the server', () => {
     expect(fillPlaceholders('{name} · {company} · {date}', { name: 'Sara Khan', company: 'Contoso', day: '2026-11-18' })).toBe('Sara Khan · Contoso · 18 Nov 2026');

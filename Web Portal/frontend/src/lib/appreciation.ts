@@ -19,15 +19,16 @@ export type AppreciationStatus = (typeof APPRECIATION_STATUSES)[number];
 
 /**
  * Each theme: a gradient dark enough for white text (at least 4.5:1 on both ends, light and dark mode alike).
- * Brand-safe: the site's ruby first, then calm deep colours (Gold and Lime deep enough for white text).
+ * Brand-safe: the site's ruby first, then calm deep colours (Gold and Lime deep enough for white text). `dark`: its
+ * own pair in the dark theme where the usual one would fade into the dark page (Slate).
  */
-export const THEME_LOOK: Record<AppreciationThemeName, { label: string; from: string; to: string }> = {
+export const THEME_LOOK: Record<AppreciationThemeName, { label: string; from: string; to: string; dark?: { from: string; to: string } }> = {
   ruby: { label: 'Ruby', from: '#9F1239', to: '#B91C1C' },
   ocean: { label: 'Ocean', from: '#075985', to: '#0369A1' },
   emerald: { label: 'Emerald', from: '#065F46', to: '#047857' },
   amber: { label: 'Amber', from: '#92400E', to: '#A84D08' },
   violet: { label: 'Violet', from: '#5B21B6', to: '#6D28D9' },
-  slate: { label: 'Slate', from: '#1E293B', to: '#334155' },
+  slate: { label: 'Slate', from: '#1E293B', to: '#334155', dark: { from: '#334155', to: '#475569' } },
   rose: { label: 'Rose', from: '#9D174D', to: '#BE185D' },
   coral: { label: 'Coral', from: '#9A3412', to: '#B23B0B' },
   gold: { label: 'Gold', from: '#715205', to: '#84620A' },
@@ -82,49 +83,76 @@ const readableOn = (ink: string, from: string, to: string) => Math.min(...[from,
 export interface Band {
   from: string;
   to: string;
+  /** The words: white or the site's near-black. */
   ink: string;
+  /**
+   * What chips and the ghost buttons lay over the band: the opposite of the ink (black under white words, white
+   * under dark ones), so a chip only ever adds contrast.
+   */
+  veil: string;
 }
+const BLACK_HEX = '#000000';
+const veilFor = (ink: string) => (ink === WHITE ? BLACK_HEX : WHITE);
 /** The pages around a band: the card and the page ground, light and dark (index.css --c-surface / --c-ground). */
 const PAGES = { light: ['#ffffff', '#f4f2f0'], dark: ['#241f1d', '#181413'] } as const;
 /** Far enough from the page that the band never washes out. */
 const STANDS_OUT = 1.35;
 
+/** The darker end: the colour 18% of the way to black. */
+const darkerEnd = (from: string) => mix(from, BLACK, 0.18);
+
 /**
  * 1.24.4: a custom colour's band in one mode — the colour first (a very light one darkened, or a very dark one
- * lightened in dark mode, until it stands out from the page), to a darker shade of it; then white or dark text,
+ * lightened in dark mode, until both ends stand out from the page), to a darker shade of it; then white or dark text,
  * whichever reads at least 4.5:1 on both ends. If neither does (a middle grey), the band darkens a little at a time.
  */
 function customBand(hex: string, mode: 'light' | 'dark'): Band {
   let from = hex.toLowerCase();
   const apart = (c: string) => Math.min(...PAGES[mode].map((p) => contrastRatio(c, p)));
-  for (let i = 0; i < 60 && apart(from) < STANDS_OUT; i++) {
+  const standsOut = (f: string) => apart(f) >= STANDS_OUT && apart(darkerEnd(f)) >= STANDS_OUT;
+  for (let i = 0; i < 80 && !standsOut(from); i++) {
     from = mode === 'light' || luminance(from) > 0.2 ? mix(from, BLACK, 0.04) : mix(from, WHITE_RGB, 0.04);
   }
-  let to = mix(from, BLACK, 0.18);
+  let to = darkerEnd(from);
   for (let i = 0; i < 80; i++) {
     const [w, d] = [readableOn(WHITE, from, to), readableOn(DARK_INK, from, to)];
-    if (Math.max(w, d) >= 4.5) return { from, to, ink: w >= d ? WHITE : DARK_INK };
+    if (Math.max(w, d) >= 4.5) {
+      const ink = w >= d ? WHITE : DARK_INK;
+      return { from, to, ink, veil: veilFor(ink) };
+    }
     from = mix(from, BLACK, 0.06);
     to = mix(to, BLACK, 0.06);
   }
-  return { from, to, ink: WHITE };
+  return { from, to, ink: WHITE, veil: BLACK_HEX };
 }
+
+/** Bands already worked out (a list draws many tiles in the same few colours). */
+const CUSTOM_LOOKS = new Map<string, { light: Band; dark: Band }>();
 
 /**
  * The band for a stored theme in light and dark mode: a theme's name, a custom colour, or Ruby for anything else
  * (a name from a newer version, a broken value) — never a crash.
  */
 export function themeLook(theme: unknown): { light: Band; dark: Band } {
-  if (isCustomColour(theme)) return { light: customBand(theme, 'light'), dark: customBand(theme, 'dark') };
+  if (isCustomColour(theme)) {
+    const key = theme.toLowerCase();
+    let look = CUSTOM_LOOKS.get(key);
+    if (!look) {
+      look = { light: customBand(key, 'light'), dark: customBand(key, 'dark') };
+      if (CUSTOM_LOOKS.size > 500) CUSTOM_LOOKS.clear();
+      CUSTOM_LOOKS.set(key, look);
+    }
+    return look;
+  }
   const look = typeof theme === 'string' && Object.prototype.hasOwnProperty.call(THEME_LOOK, theme) ? THEME_LOOK[theme as AppreciationThemeName] : THEME_LOOK.ruby;
-  const band = { from: look.from, to: look.to, ink: WHITE };
-  return { light: band, dark: band };
+  const band = { from: look.from, to: look.to, ink: WHITE, veil: BLACK_HEX };
+  return { light: band, dark: look.dark ? { ...look.dark, ink: WHITE, veil: BLACK_HEX } : band };
 }
 
 const channels = (hex: string) => rgbOf(hex).join(' ');
 /**
  * The inline style for an element with the `ap-band` class (index.css): the colours as CSS variables, so the dark
- * theme takes its own and the words inside follow the band's ink (`ap-ink-90`, `ap-chip`, `ap-ghost`).
+ * theme takes its own and the words inside follow the band's ink (`ap-ink-90`), chips and ghost buttons its veil.
  */
 export function themeStyle(theme: unknown): CSSProperties {
   const { light, dark } = themeLook(theme);
@@ -132,9 +160,11 @@ export function themeStyle(theme: unknown): CSSProperties {
     '--ap-l1': light.from,
     '--ap-l2': light.to,
     '--ap-li': channels(light.ink),
+    '--ap-lv': channels(light.veil),
     '--ap-d1': dark.from,
     '--ap-d2': dark.to,
     '--ap-di': channels(dark.ink),
+    '--ap-dv': channels(dark.veil),
   } as CSSProperties;
 }
 /** The light-mode gradient (a small swatch). */

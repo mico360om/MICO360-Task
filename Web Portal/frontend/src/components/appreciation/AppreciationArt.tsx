@@ -122,10 +122,10 @@ const PATHS: Record<AppreciationIcon, ReactNode> = {
 };
 
 /**
- * An icon, drawn in the current text colour. Decorative by default (the words beside it say what it is); `label`
- * gives it an accessible name where it stands alone. An unknown name (from a newer version) draws the star.
+ * An icon, drawn in the current text colour; decorative (the words beside it, or the picker's radio, name it). An
+ * unknown name (from a newer version) draws the star.
  */
-export function AppreciationIconSvg({ icon, size = 24, className = '', label }: { icon: AppreciationIcon; size?: number; className?: string; label?: string }) {
+export function AppreciationIconSvg({ icon, size = 24, className = '' }: { icon: AppreciationIcon; size?: number; className?: string }) {
   const known = Object.prototype.hasOwnProperty.call(PATHS, icon);
   return (
     <svg
@@ -137,7 +137,7 @@ export function AppreciationIconSvg({ icon, size = 24, className = '', label }: 
       strokeWidth="1.8"
       strokeLinecap="round"
       strokeLinejoin="round"
-      {...(label ? { role: 'img', 'aria-label': label } : { 'aria-hidden': true })}
+      aria-hidden="true"
       data-icon={known ? icon : 'star'}
       className={className}
     >

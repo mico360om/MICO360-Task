@@ -55,15 +55,17 @@ describe('the colour theme', () => {
 
   it('a code that isn’t a colour is refused on leaving the box, and the last good colour is kept', () => {
     render(<Form first={{ ...START, theme: '#1e6091' }} />);
-    const box = screen.getByLabelText('Or type a colour code');
+    const box = screen.getByLabelText('Or type a colour code') as HTMLInputElement;
     fireEvent.change(box, { target: { value: '#12G' } });
     expect(screen.queryByRole('alert')).toBeNull(); // not while typing
     fireEvent.blur(box);
     expect(screen.getByRole('alert')).toHaveTextContent(COLOUR_CODE_ERROR);
-    expect(box).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByRole('alert')).toHaveTextContent('Kept #1E6091.');
+    expect(box.value).toBe('#1E6091'); // what is shown is what will be sent
     expect(latest.theme).toBe('#1e6091');
     fireEvent.change(box, { target: { value: '2a9d8f' } });
     expect(latest.theme).toBe('#2a9d8f');
+    expect(screen.queryByRole('alert')).toBeNull(); // a good code clears the reason
     fireEvent.blur(box);
     expect(screen.queryByRole('alert')).toBeNull();
   });
@@ -86,7 +88,7 @@ describe('the icons', () => {
     expect(latest.icon).toBe('handshake');
   });
 
-  it('each draws its own picture; an unknown one draws the star; a label makes it an image with that name', () => {
+  it('each draws its own picture (decorative); an unknown one draws the star', () => {
     const drawn = new Set<string>();
     for (const i of APPRECIATION_ICONS) {
       const { container, unmount } = render(<AppreciationIconSvg icon={i} />);
@@ -99,8 +101,7 @@ describe('the icons', () => {
     expect(drawn.size).toBe(20);
     const { container } = render(<AppreciationIconSvg icon={'unicorn' as never} />);
     expect(container.querySelector('svg')!.getAttribute('data-icon')).toBe('star');
-    render(<AppreciationIconSvg icon="crown" label="Crown" />);
-    expect(screen.getByRole('img', { name: 'Crown' })).toBeInTheDocument();
+    expect(container.querySelector('svg')!.getAttribute('aria-hidden')).toBe('true');
   });
 });
 

@@ -284,8 +284,10 @@ describe('the preview’s confetti', () => {
 
 describe('1.24.4: two columns by the page’s own room', () => {
   it('the open sidebar counts: a 1100 px window with it open (about 820 px of page) is one column; measured room decides', () => {
-    expect(SEND_TWO_COLUMN_ROOM).toBe(900);
+    expect(SEND_TWO_COLUMN_ROOM).toBe(56.25); // rem: 900 px at the usual 16 px
     expect(sendTwoColumns(true, 817)).toBe(false); // 1100 window, sidebar open
+    expect(sendTwoColumns(true, 975, 20)).toBe(false); // a larger browser text size needs more room
+    expect(sendTwoColumns(true, 1130, 20)).toBe(true);
     expect(sendTwoColumns(true, 975)).toBe(true); // 1100 window, sidebar folded
     expect(sendTwoColumns(true, 1169)).toBe(true); // 1480 window, sidebar open
     expect(sendTwoColumns(false, 950)).toBe(true);

@@ -80,6 +80,8 @@ const PICK = `relative inline-flex cursor-pointer items-center gap-2 rounded-xl 
 /** The Custom choice's first colour (the owner's example). */
 export const DEFAULT_CUSTOM: CustomColour = '#1e6091';
 export const COLOUR_CODE_ERROR = 'Type a colour code like #1E6091 (# and six letters or numbers, 0–9 and A–F).';
+/** 1.24.4: said with the reason, after the box goes back to the colour in use (what is shown is what is sent). */
+const keptWords = (c: CustomColour) => `Kept ${c.toUpperCase()}.`;
 
 /**
  * The colour theme: fourteen named ones, or (1.24.4) Custom — any colour from the device's colour picker, or a
@@ -153,7 +155,6 @@ function ThemePicker({ name, value, onChange }: { name: string; value: Appreciat
               spellCheck={false}
               autoComplete="off"
               placeholder="#1E6091"
-              aria-invalid={bad || undefined}
               aria-describedby={bad ? `${id}-code-error` : undefined}
               onChange={(e) => {
                 setCode(e.target.value);
@@ -161,11 +162,16 @@ function ThemePicker({ name, value, onChange }: { name: string; value: Appreciat
                 // Said on leaving the box (not at every key while it is being typed); gone once it is a colour.
                 if (v) pick(v);
               }}
-              onBlur={() => setBad(!normaliseColourInput(code))}
+              onBlur={() => {
+                // Not a colour: the box goes back to the colour in use (what is shown is what will be sent) and says why.
+                if (normaliseColourInput(code)) return;
+                setCode(lastCustom.toUpperCase());
+                setBad(true);
+              }}
             />
             {bad ? (
               <p id={`${id}-code-error`} className="text-xs text-danger" role="alert">
-                {COLOUR_CODE_ERROR}
+                {COLOUR_CODE_ERROR} {keptWords(lastCustom)}
               </p>
             ) : null}
           </div>

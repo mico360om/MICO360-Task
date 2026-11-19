@@ -417,7 +417,7 @@ export function DashboardPage() {
         className={`relative overflow-hidden rounded-2xl ${appreciation ? 'ap-band shadow-soft ' : 'bg-brand-gradient shadow-brand text-white '}px-5 py-4 animate-fade-in-up sm:px-6`}
         {...(appreciation ? { style: themeStyle(appreciation.theme), 'data-appreciation-theme': appreciation.theme } : {})}
       >
-        <div className="pointer-events-none absolute -right-10 -top-16 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
+        <div className={`pointer-events-none absolute -right-10 -top-16 h-40 w-40 rounded-full ${appreciation ? 'ap-veil-soft' : 'bg-white/10'} blur-2xl`} />
         <div className="pointer-events-none absolute -bottom-16 right-24 h-32 w-32 rounded-full bg-black/10 blur-2xl" />
         <div className="relative flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
           <div className="min-w-0">
