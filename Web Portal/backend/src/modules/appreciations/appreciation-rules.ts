@@ -7,9 +7,21 @@ import { shiftDayKey, zonedDayKey, zonedStartOfDay } from '../../lib/due-date';
  * holds the two together.
  */
 
-export const APPRECIATION_THEMES = ['ruby', 'ocean', 'emerald', 'amber', 'violet', 'slate'] as const;
-export type AppreciationTheme = (typeof APPRECIATION_THEMES)[number];
-export const APPRECIATION_ICONS = ['star', 'team', 'trophy', 'bulb', 'heart', 'medal'] as const;
+// 1.24.4 (owner, 19 Nov): eight more themes and fourteen more icons, after the first ones.
+export const APPRECIATION_THEMES = ['ruby', 'ocean', 'emerald', 'amber', 'violet', 'slate', 'rose', 'coral', 'gold', 'lime', 'teal', 'sky', 'indigo', 'plum'] as const;
+export type AppreciationThemeName = (typeof APPRECIATION_THEMES)[number];
+/** A custom colour, `#rrggbb` in lower case (1.24.4: kept in the same VarChar(16) theme column, no migration). */
+export type CustomColour = `#${string}`;
+/** What the theme column holds: a theme's name or a custom colour. */
+export type AppreciationTheme = AppreciationThemeName | CustomColour;
+export const CUSTOM_COLOUR = /^#[0-9a-f]{6}$/i;
+/** A theme name as it is, a custom colour in lower case; null for anything else. */
+export function normaliseTheme(v: unknown): AppreciationTheme | null {
+  if (typeof v !== 'string') return null;
+  if ((APPRECIATION_THEMES as readonly string[]).includes(v)) return v as AppreciationThemeName;
+  return CUSTOM_COLOUR.test(v) ? (v.toLowerCase() as CustomColour) : null;
+}
+export const APPRECIATION_ICONS = ['star', 'team', 'trophy', 'bulb', 'heart', 'medal', 'shield', 'clock', 'rocket', 'target', 'thumbs-up', 'handshake', 'crown', 'flag', 'gift', 'sparkles', 'award', 'lightning', 'smile', 'sun'] as const;
 export type AppreciationIcon = (typeof APPRECIATION_ICONS)[number];
 export const APPRECIATION_ANIMATIONS = ['none', 'confetti', 'shimmer'] as const;
 export type AppreciationAnimation = (typeof APPRECIATION_ANIMATIONS)[number];
@@ -92,7 +104,7 @@ export const BUILT_IN_TEMPLATES: ReadonlyArray<TemplateContent & { key: string }
     title: 'Safety Champion',
     message: 'Thank you, {name}, for keeping safety first. Your care helps everyone at {company} go home safe.',
     theme: 'emerald',
-    icon: 'medal',
+    icon: 'shield',
     animation: 'shimmer',
   },
   {
@@ -101,7 +113,7 @@ export const BUILT_IN_TEMPLATES: ReadonlyArray<TemplateContent & { key: string }
     title: 'Customer Hero',
     message: '{name}, our clients noticed! Thank you for the outstanding service you gave on behalf of {company}.',
     theme: 'ocean',
-    icon: 'heart',
+    icon: 'handshake',
     animation: 'confetti',
   },
   {
@@ -128,7 +140,7 @@ export const BUILT_IN_TEMPLATES: ReadonlyArray<TemplateContent & { key: string }
     title: 'Deadline Achiever',
     message: 'Well done, {name}! You delivered on time and kept the work on track. Thank you.',
     theme: 'amber',
-    icon: 'trophy',
+    icon: 'clock',
     animation: 'confetti',
   },
   {
@@ -137,7 +149,7 @@ export const BUILT_IN_TEMPLATES: ReadonlyArray<TemplateContent & { key: string }
     title: 'Leadership Award',
     message: 'Thank you, {name}, for leading by example. Your guidance helps the whole team succeed.',
     theme: 'slate',
-    icon: 'trophy',
+    icon: 'crown',
     animation: 'shimmer',
   },
   {
@@ -176,6 +188,18 @@ export const BUILT_IN_TEMPLATES: ReadonlyArray<TemplateContent & { key: string }
     icon: 'heart',
     animation: 'confetti',
   },
+];
+
+/**
+ * 1.24.4: four of the 1.24.2 built-ins get a better icon. They were already created (with the old icon) on sites
+ * that ran 1.24.2/1.24.3, so start-up changes exactly these rows — matched by key AND the old icon, so a re-run,
+ * or a row changed since, is left alone.
+ */
+export const BUILT_IN_ICON_UPGRADES: ReadonlyArray<{ key: string; from: AppreciationIcon; to: AppreciationIcon }> = [
+  { key: 'safety-champion', from: 'medal', to: 'shield' },
+  { key: 'deadline-achiever', from: 'trophy', to: 'clock' },
+  { key: 'customer-hero', from: 'heart', to: 'handshake' },
+  { key: 'leadership', from: 'trophy', to: 'crown' },
 ];
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];

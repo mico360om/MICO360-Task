@@ -264,6 +264,36 @@ describe('templates', () => {
   });
 });
 
+describe('better icons on four built-ins (1.24.4)', () => {
+  const keys = ['safety-champion', 'deadline-achiever', 'customer-hero', 'leadership'];
+  const iconsNow = async () =>
+    Object.fromEntries((await prisma.appreciationTemplate.findMany({ where: { builtInKey: { in: keys } } })).map((t) => [t.builtInKey, t.icon]));
+  it('a start-up after 1.24.3 changes exactly those four rows from their old icon; a re-run is a no-op; an icon changed since is left alone', async () => {
+    // As created on live by 1.24.2 / 1.24.3 (the old icons).
+    const old = { 'safety-champion': 'medal', 'deadline-achiever': 'trophy', 'customer-hero': 'heart', leadership: 'trophy' };
+    for (const [k, icon] of Object.entries(old)) await prisma.appreciationTemplate.update({ where: { builtInKey: k }, data: { icon } });
+    const others = await prisma.appreciationTemplate.findMany({ where: { builtInKey: { notIn: keys } }, orderBy: { id: 'asc' } });
+    expect(await s.ensureBuiltIns()).toBe(0);
+    expect(await iconsNow()).toEqual({ 'safety-champion': 'shield', 'deadline-achiever': 'clock', 'customer-hero': 'handshake', leadership: 'crown' });
+    expect(await prisma.appreciationTemplate.findMany({ where: { builtInKey: { notIn: keys } }, orderBy: { id: 'asc' } })).toEqual(others);
+    // A re-run (another server, the next start-up) changes nothing.
+    const stamp = (await prisma.appreciationTemplate.findMany({ where: { builtInKey: { in: keys } }, orderBy: { id: 'asc' } })).map((t) => t.updatedAt.getTime());
+    await s.ensureBuiltIns();
+    expect((await prisma.appreciationTemplate.findMany({ where: { builtInKey: { in: keys } }, orderBy: { id: 'asc' } })).map((t) => t.updatedAt.getTime())).toEqual(stamp);
+    // Only the exact old icon is replaced.
+    await prisma.appreciationTemplate.update({ where: { builtInKey: 'leadership' }, data: { icon: 'star' } });
+    await s.ensureBuiltIns();
+    expect((await iconsNow()).leadership).toBe('star');
+    await prisma.appreciationTemplate.update({ where: { builtInKey: 'leadership' }, data: { icon: 'crown' } });
+  });
+
+  it('a custom colour is stored as #rrggbb in the theme column and read back as sent', async () => {
+    const t = await s.createTemplate(w.people.amy, { name: 'Custom colour', title: 't', message: 'm', theme: '#1e6091', icon: 'rocket', animation: 'none' });
+    expect(t).toMatchObject({ theme: '#1e6091', icon: 'rocket' });
+    expect((await s.templates(w.people.amy)).find((x) => x.id === t.id)).toMatchObject({ theme: '#1e6091' });
+  });
+});
+
 describe('a note for the manager with the accept (1.24.1)', () => {
   it('accept with a note: saved trimmed, the sender’s bell notice quotes it, the audit says a note was left (not its text)', async () => {
     clock = new Date('2026-12-02T06:00:00.000Z');

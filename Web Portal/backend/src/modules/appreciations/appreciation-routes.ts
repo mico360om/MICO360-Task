@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type { AuthGuard } from '../auth/auth-guard';
 import { NotFoundError } from '../../lib/http-errors';
 import { buildXlsx, XLSX_CONTENT_TYPE } from '../../lib/xlsx-writer';
-import { APPRECIATION_ANIMATIONS, APPRECIATION_ICONS, APPRECIATION_STATUSES, APPRECIATION_THEMES, LIMITS, dayWords } from './appreciation-rules';
+import { APPRECIATION_ANIMATIONS, APPRECIATION_ICONS, APPRECIATION_STATUSES, APPRECIATION_THEMES, LIMITS, dayWords, normaliseTheme } from './appreciation-rules';
 import type { AppreciationService, ListFilters, ManagedRow } from './appreciation-service';
 
 /**
@@ -24,7 +24,13 @@ const text = (max: number) => z.string().trim().min(1, 'Required.').max(max, `At
 const content = {
   title: text(LIMITS.title),
   message: text(LIMITS.message),
-  theme: z.enum(APPRECIATION_THEMES),
+  // A theme's name, or (1.24.4) a custom colour #rrggbb, kept in lower case.
+  theme: z.string().transform((v, ctx) => {
+    const t = normaliseTheme(v);
+    if (t) return t;
+    ctx.addIssue({ code: 'custom', message: `Choose a colour theme (${APPRECIATION_THEMES.join(', ')}) or a colour like #1e6091.` });
+    return z.NEVER;
+  }),
   icon: z.enum(APPRECIATION_ICONS),
   animation: z.enum(APPRECIATION_ANIMATIONS),
 };

@@ -5,6 +5,7 @@ import { shiftDayKey } from '../../lib/due-date';
 import { CLIENT_ROLE } from '../clients/client-kind';
 import {
   APPRECIATION_WORDS as W,
+  BUILT_IN_ICON_UPGRADES,
   BUILT_IN_TEMPLATES,
   LIMITS,
   canManageAppreciations,
@@ -307,6 +308,11 @@ export function createAppreciationService(d: AppreciationDeps) {
       data: BUILT_IN_TEMPLATES.map(({ key, ...t }) => ({ builtInKey: key, ...t })),
       skipDuplicates: true,
     });
+    // 1.24.4: the better icons for four built-ins made earlier — one single-statement update per row, only from
+    // the old icon (a re-run, or a second server starting at the same time, changes nothing).
+    for (const u of BUILT_IN_ICON_UPGRADES) {
+      await prisma.appreciationTemplate.updateMany({ where: { builtInKey: u.key, icon: u.from }, data: { icon: u.to } });
+    }
     return made.count;
   }
 

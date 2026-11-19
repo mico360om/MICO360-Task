@@ -86,7 +86,7 @@ describe('appreciation routes', () => {
     const { a, as } = await app();
     expect((await a.inject({ method: 'POST', url: '/api/v1/appreciations/manage', headers: await as('emp'), payload: send })).statusCode).toBe(403);
     expect((await a.inject({ method: 'POST', url: '/api/v1/appreciations/manage', headers: await as('mgr'), payload: send })).statusCode).toBe(201);
-    for (const bad of [{ ...send, recipientIds: [] }, { ...send, theme: 'neon' }, { ...send, animation: 'fireworks' }, { ...send, title: '' }, { ...send, message: 'x'.repeat(1001) }, { ...send, day: '18 Nov' }, { ...send, extra: 1 }]) {
+    for (const bad of [{ ...send, recipientIds: [] }, { ...send, theme: 'neon' }, { ...send, theme: '#12345' }, { ...send, theme: '#12345g' }, { ...send, theme: 'rgb(1,2,3)' }, { ...send, icon: 'unicorn' }, { ...send, animation: 'fireworks' }, { ...send, title: '' }, { ...send, message: 'x'.repeat(1001) }, { ...send, day: '18 Nov' }, { ...send, extra: 1 }]) {
       expect((await a.inject({ method: 'POST', url: '/api/v1/appreciations/manage', headers: await as('mgr'), payload: bad })).statusCode).toBe(400);
     }
     expect((await a.inject({ method: 'PATCH', url: '/api/v1/appreciations/manage/a1', headers: await as('mgr'), payload: {} })).statusCode).toBe(400);
@@ -94,6 +94,18 @@ describe('appreciation routes', () => {
     expect((await a.inject({ method: 'GET', url: '/api/v1/appreciations/manage?status=WRONG', headers: await as('mgr') })).statusCode).toBe(400);
     expect((await a.inject({ method: 'GET', url: '/api/v1/appreciations/manage?status=EXPIRED&page=2', headers: await as('mgr') })).statusCode).toBe(200);
     expect((await a.inject({ method: 'POST', url: '/api/v1/appreciations/manage/templates', headers: await as('mgr'), payload: { name: 'N', ...send, recipientIds: undefined, day: undefined } })).statusCode).toBe(201);
+  });
+
+  it('1.24.4: a new theme, a new icon and a custom colour pass; the colour reaches the service in lower case', async () => {
+    const { a, as, calls } = await app();
+    for (const ok of [{ ...send, theme: 'plum', icon: 'handshake' }, { ...send, theme: '#1E6091', icon: 'thumbs-up' }]) {
+      expect((await a.inject({ method: 'POST', url: '/api/v1/appreciations/manage', headers: await as('mgr'), payload: ok })).statusCode).toBe(201);
+    }
+    const tpl = { name: 'N', title: 'T', message: 'M', theme: '#F5F5A0', icon: 'sun', animation: 'none' };
+    expect((await a.inject({ method: 'POST', url: '/api/v1/appreciations/manage/templates', headers: await as('mgr'), payload: tpl })).statusCode).toBe(201);
+    expect((await a.inject({ method: 'PATCH', url: '/api/v1/appreciations/manage/a1', headers: await as('mgr'), payload: { theme: '#ABCDEF' } })).statusCode).toBe(200);
+    const themes = calls.filter(([n]) => ['schedule', 'createTemplate', 'update'].includes(n)).map(([, args]) => JSON.stringify(args).match(/"theme":"([^"]+)"/)?.[1]);
+    expect(themes).toEqual(['plum', '#1e6091', '#f5f5a0', '#abcdef']);
   });
 
   it('the history as an Excel file (attachment)', async () => {
