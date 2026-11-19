@@ -732,4 +732,13 @@ export const ROUTE_CLASSES: Readonly<Record<string, RouteClass>> = {
   // 1.24 two-step sign-in: an administrator's own sign-in (Settings → Security; the break-glass banner).
   'GET /auth/two-step': 'own',
   'POST /auth/two-step/forget': 'own',
+  // 1.24.3 "Download PDF" on the Workspace pages: each asks the page's own route as the caller (its class is the page's).
+  'GET /kpis/people/me/export.pdf': 'own',
+  'GET /kpis/people/:userId/export.pdf': 'people',
+  'GET /workload.pdf': 'list',
+  'GET /timeline.pdf': 'list',
+  'POST /calendar.pdf': 'list',
+  'POST /projects/overview.pdf': 'list',
+  'POST /board.pdf': 'list',
+  'POST /tasks/mine.pdf': 'list',
 };

@@ -289,6 +289,30 @@ export interface TableColumn {
   nowrap?: boolean;
 }
 
+/**
+ * 1.24.3: drawing inside a canvas() block. Coordinates are points from the block's top-left corner;
+ * colours are '#RRGGBB' or RGB triples; a text's `y` is the top of its line box.
+ */
+export interface PdfPainter {
+  readonly width: number;
+  readonly height: number;
+  /** A box filled (null: none) and/or outlined, with rounded corners when `radius` is given. */
+  rect(x: number, y: number, w: number, h: number, fill: RGB | string | null, options?: { radius?: number; stroke?: RGB | string; lineWidth?: number; dash?: number }): void;
+  line(x1: number, y1: number, x2: number, y2: number, stroke: RGB | string, options?: { width?: number; dash?: number }): void;
+  /** A diamond (a milestone) centred on (cx, cy), `r` from the centre to each point. */
+  diamond(cx: number, cy: number, r: number, fill: RGB | string | null, stroke?: RGB | string): void;
+  circle(cx: number, cy: number, r: number, fill: RGB | string): void;
+  /** Diagonal hatching inside a box (a late part, a day off). */
+  hatch(x: number, y: number, w: number, h: number, stroke: RGB | string, gap?: number): void;
+  /** One line of text; with `maxWidth` it shrinks a little (to `minSize`), then ends with "…". Returns its width. */
+  text(x: number, y: number, text: string, options?: { size?: number; minSize?: number; bold?: boolean; color?: RGB | string; maxWidth?: number; align?: 'left' | 'center' | 'right' | 'start' }): number;
+  /** Text wrapped to `maxWidth`, at most `maxLines` lines (the last ends with "…" when cut). Returns the height used. */
+  lines(x: number, y: number, text: string, options: { size?: number; bold?: boolean; color?: RGB | string; maxWidth: number; maxLines?: number; align?: 'left' | 'center' }): number;
+  /** The height lines() would use. */
+  textHeight(text: string, options: { size?: number; bold?: boolean; maxWidth: number; maxLines?: number }): number;
+  measure(text: string, size: number, bold?: boolean): number;
+}
+
 /** Room between a table cell's edge and its text, left and right (points). */
 export const TABLE_PAD_X = 5;
 /** Room above and below a table cell's text (points). */
@@ -1402,6 +1426,149 @@ export class PdfDocument {
       drawTextLine(this.ink, t, x, top + plotH + 11, small, toHex(this.pal.muted));
     }
     this.y = top + height + 6;
+    return this;
+  }
+
+  // ── Drawn blocks (1.24.3: the page PDFs "like the screen") ───────────────────────────────────
+
+  /** The width between the side margins of the current page. */
+  get width(): number {
+    return this.contentWidth;
+  }
+
+  /** The most a block can take on a page after the first (under the running header, above the footer). */
+  get pageRoom(): number {
+    return this.contentBottom - CONTINUATION_TOP;
+  }
+
+  /** Go on at the top of a new page (none is added until something is drawn on it). */
+  pageBreak(): this {
+    this.newPage();
+    return this;
+  }
+
+  /**
+   * A drawn block `height` points tall across the content width — a chart row, a calendar week, a board's
+   * row of cards. It is never split: when it doesn't fit in the room left it starts a new page (callers
+   * keep a block within `pageRoom`), and `onNewPage` runs first (a repeated header block, say). `draw` gets
+   * a painter whose coordinates start at the block's top-left corner; every string goes through the same
+   * text engine as the rest of the document (Arabic joined, right-to-left).
+   */
+  canvas(height: number, draw: (p: PdfPainter) => void, options: { onNewPage?: () => void } = {}): this {
+    if (this.y + height > this.contentBottom && !this.atTop) {
+      this.newPage();
+      options.onNewPage?.();
+    }
+    const left = this.margin;
+    const top = this.y;
+    const doc = this.ink;
+    const ink = this.pal.ink;
+    const color = (c: RGB | string) => toHex(typeof c === 'string' ? hexToRgb(c) : c);
+    const fitted = (text: string, size: number, bold: boolean, maxWidth: number | undefined, minSize: number) => {
+      const one = (t: string, sz: number) => layoutText(t, { size: sz, bold })[0] ?? null;
+      let sz = size;
+      let line = one(text, sz);
+      if (maxWidth === undefined || !line) return { line, size: sz };
+      while (line && line.width > maxWidth && sz - 0.5 >= minSize - 1e-9) {
+        sz -= 0.5;
+        line = one(text, sz);
+      }
+      if (!line || line.width <= maxWidth) return { line, size: sz };
+      let lo = 0;
+      let hi = text.length;
+      while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (measureText(`${text.slice(0, mid).trimEnd()}…`, sz, bold) <= maxWidth) lo = mid;
+        else hi = mid - 1;
+      }
+      return { line: lo > 0 ? one(`${text.slice(0, lo).trimEnd()}…`, sz) : null, size: sz };
+    };
+    /** The text wrapped to `maxWidth` in at most `maxLines` lines (the last ends with "…" when more was cut). */
+    const wrapped = (text: string, size: number, bold: boolean, maxWidth: number, maxLines: number): TextLine[] => {
+      const all = layoutText(text, { size, bold, maxWidth });
+      if (all.length <= maxLines) return all;
+      let lo = 0;
+      let hi = text.length;
+      while (lo < hi) {
+        const mid = (lo + hi + 1) >> 1;
+        if (layoutText(`${text.slice(0, mid).trimEnd()}…`, { size, bold, maxWidth }).length <= maxLines) lo = mid;
+        else hi = mid - 1;
+      }
+      return layoutText(`${text.slice(0, lo).trimEnd()}…`, { size, bold, maxWidth }).slice(0, maxLines);
+    };
+    const painter: PdfPainter = {
+      width: this.contentWidth,
+      height,
+      rect: (x, y, w, h, fill, o = {}) => {
+        if (w <= 0 || h <= 0) return;
+        doc.save();
+        if (o.radius) doc.roundedRect(left + x, top + y, w, h, Math.min(o.radius, w / 2, h / 2));
+        else doc.rect(left + x, top + y, w, h);
+        if (o.dash) doc.dash(o.dash, { space: o.dash });
+        if (fill !== null && o.stroke) doc.lineWidth(o.lineWidth ?? 0.5).fillAndStroke(color(fill), color(o.stroke));
+        else if (fill !== null) doc.fill(color(fill));
+        else if (o.stroke) doc.lineWidth(o.lineWidth ?? 0.5).stroke(color(o.stroke));
+        if (o.dash) doc.undash();
+        doc.restore();
+      },
+      line: (x1, y1, x2, y2, stroke, o = {}) => {
+        doc.save().lineWidth(o.width ?? 0.5);
+        if (o.dash) doc.dash(o.dash, { space: o.dash });
+        doc.moveTo(left + x1, top + y1).lineTo(left + x2, top + y2).stroke(color(stroke));
+        if (o.dash) doc.undash();
+        doc.restore();
+      },
+      diamond: (cx, cy, r, fill, stroke) => {
+        doc.save().lineWidth(1);
+        doc.polygon([left + cx, top + cy - r], [left + cx + r, top + cy], [left + cx, top + cy + r], [left + cx - r, top + cy]);
+        if (fill !== null && stroke) doc.fillAndStroke(color(fill), color(stroke));
+        else if (fill !== null) doc.fill(color(fill));
+        else if (stroke) doc.stroke(color(stroke));
+        doc.restore();
+      },
+      circle: (cx, cy, r, fill) => {
+        doc.save().circle(left + cx, top + cy, r).fill(color(fill)).restore();
+      },
+      hatch: (x, y, w, h, stroke, gap = 3) => {
+        if (w <= 0 || h <= 0) return;
+        doc.save();
+        doc.rect(left + x, top + y, w, h).clip();
+        doc.lineWidth(0.6);
+        for (let d = -h; d < w; d += gap) doc.moveTo(left + x + d, top + y + h).lineTo(left + x + d + h, top + y);
+        doc.stroke(color(stroke));
+        doc.restore();
+      },
+      text: (x, y, text, o = {}) => {
+        const size = o.size ?? TYPE.small;
+        const { line, size: sz } = fitted(text, size, o.bold === true, o.maxWidth, o.minSize ?? size);
+        if (!line) return 0;
+        const box = lineBox(line, sz);
+        const w = o.maxWidth ?? line.width;
+        const align = o.align ?? 'left';
+        const lx = align === 'right' || (align === 'start' && line.rtl) ? x + w - line.width : align === 'center' ? x + (w - line.width) / 2 : x;
+        drawTextLine(doc, line, left + lx, top + y + box.ascent, sz, color(o.color ?? ink));
+        return line.width;
+      },
+      lines: (x, y, text, o) => {
+        const size = o.size ?? TYPE.small;
+        let at = y;
+        for (const ln of wrapped(text, size, o.bold === true, o.maxWidth, o.maxLines ?? 99)) {
+          const box = lineBox(ln, size);
+          const lx = o.align === 'center' ? x + (o.maxWidth - ln.width) / 2 : ln.rtl && o.align !== 'left' ? x + o.maxWidth - ln.width : x;
+          drawTextLine(doc, ln, left + lx, top + at + box.ascent, size, color(o.color ?? ink));
+          at += box.height;
+        }
+        return at - y;
+      },
+      textHeight: (text, o) => {
+        const size = o.size ?? TYPE.small;
+        return wrapped(text, size, o.bold === true, o.maxWidth, o.maxLines ?? 99).reduce((h, ln) => h + lineBox(ln, size).height, 0);
+      },
+      measure: (text, size, bold = false) => measureText(text, size, bold),
+    };
+    draw(painter);
+    this.y = top + height;
+    this.lastLine = null;
     return this;
   }
 

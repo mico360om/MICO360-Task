@@ -3,6 +3,7 @@ import { PdfDocument, hexToRgb } from './pdf-document';
 import { inspectPdf } from './pdf-inspect';
 import { measureText } from './pdf-text';
 import { solidPng } from './test-images';
+import { readPdfText } from './pdf-read-text';
 
 describe('PdfDocument', () => {
   it('produces a valid PDF envelope whose xref offsets point at each object', () => {
@@ -731,5 +732,47 @@ describe('PdfDocument — compact density (the minutes, 1.22.1)', () => {
     const at = (t: string) => lines.find((l) => l.text === t)!;
     expect(at('6 invited · 0 present').y).toBeCloseTo(at('Attendees').y, 1);
     expect(at('6 invited · 0 present').x).toBeGreaterThan(at('Attendees').x + 200);
+  });
+});
+
+describe('PdfDocument.canvas (1.24.3 drawn blocks)', () => {
+  it('draws a block where the cursor is and moves the cursor under it', () => {
+    const doc = new PdfDocument({ orientation: 'landscape' });
+    const before = doc.cursor;
+    let seen = 0;
+    doc.canvas(40, (p) => {
+      seen = p.width;
+      p.rect(0, 0, p.width, 40, '#F4F3F2', { radius: 4, stroke: '#D1CCC7' });
+      p.text(4, 4, 'Contoso Tower', { size: 9, bold: true });
+    });
+    expect(seen).toBe(doc.width);
+    expect(doc.cursor).toBe(before + 40);
+    expect(readPdfText(doc.build()).text).toContain('Contoso Tower');
+  });
+
+  it('never splits a block: one that doesn’t fit starts the next page, after its repeated header', () => {
+    const doc = new PdfDocument({ orientation: 'landscape' });
+    const heads: number[] = [];
+    const head = () => doc.canvas(12, (p) => p.text(0, 0, 'HEAD')).cursor;
+    for (let i = 0; i < 30; i++) doc.canvas(50, (p) => p.text(0, 0, `Row ${i}`), { onNewPage: () => heads.push(head()) });
+    expect(doc.build()).toBeInstanceOf(Buffer);
+    expect(doc.pageCount).toBeGreaterThan(2);
+    expect(heads.length).toBe(doc.pageCount - 1);
+    const text = readPdfText(doc.build()).text;
+    for (let i = 0; i < 30; i++) expect(text).toContain(`Row ${i}`);
+  });
+
+  it('a long line ends with "…" within its width; lines() keeps to its line count; Arabic is kept as text', () => {
+    const doc = new PdfDocument();
+    let h = 0;
+    doc.canvas(60, (p) => {
+      p.text(0, 0, 'A very long title that will never fit inside forty points', { size: 8, maxWidth: 40 });
+      h = p.lines(0, 12, 'one two three four five six seven eight nine ten eleven twelve', { size: 8, maxWidth: 60, maxLines: 2 });
+      p.text(0, 40, 'خالد البلوشي', { size: 8 });
+    });
+    expect(h).toBeCloseTo(8 * 1.4 * 2, 1);
+    const text = readPdfText(doc.build()).text;
+    expect(text).toMatch(/A very…|A ver…|A very lo…|A…/);
+    expect(text).toContain('خالد البلوشي');
   });
 });

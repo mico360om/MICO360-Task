@@ -131,6 +131,7 @@ import type { TemplateService } from './modules/templates/template-service';
 import { registerInspectionRoutes, type InspectionRouteDeps } from './modules/inspections/inspection-routes';
 import { registerManagementRoutes, type ManagementRouteDeps } from './modules/management/management-routes';
 import { registerKpiRoutes, type KpiRouteDeps } from './modules/kpis/kpi-routes';
+import { registerPagePdfRoutes } from './modules/page-pdfs/page-pdf-routes';
 import { registerTraining, type TrainingRoutesBundle } from './modules/training/training-wiring';
 import { registerAppreciationRoutes, type AppreciationRouteDeps } from './modules/appreciations/appreciation-routes';
 import { registerBackupRoutes, type BackupRouteDeps } from './modules/backups/backup-routes';
@@ -1342,6 +1343,14 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
         // managers), the company targets (administrators).
         await registerKpiRoutes(api, { ...deps.kpis, guard, canViewProject: canViewProject ?? (async () => false), pickOf, pdfBrand: scopeBrand });
       }
+      // 1.24.3 "Download PDF" on the Workspace pages: each PDF asks the page's own data route as the caller
+      // (same session, query and picked company), so it has exactly the page's access.
+      await registerPagePdfRoutes(api, {
+        guard,
+        timeZone: deps.appConfig?.timeZone ?? defaultCompanyTimeZone(),
+        userName: deps.reportNames ? (id) => deps.reportNames!.user(id) : undefined,
+        pdfBrand: scopeBrand,
+      });
       if (deps.inspections) {
         // companies: a form's usage counts follow the person's projects and the pick.
         await registerInspectionRoutes(api, { ...deps.inspections, guard, broadcast: deps.onTaskEvent, accessibleProjectIds, pickOf });
