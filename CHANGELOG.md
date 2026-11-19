@@ -14,6 +14,9 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Security
+- Updated two libraries flagged by the hosting security scan: the website's page router (react-router 7.18.4 → 7.18.5, two high-severity advisories) and the server's file serving (@fastify/static 10.1.10 → 10.1.12, one moderate advisory).
+
 ## [1.24.4] - 2026-11-19
 
 ### New features
