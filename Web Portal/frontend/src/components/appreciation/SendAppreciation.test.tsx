@@ -173,15 +173,15 @@ describe('the action bar', () => {
     show();
     await screen.findByRole('radiogroup', { name: 'Template' });
     await waitFor(() => expect(screen.getByLabelText(/^Message/)).not.toHaveValue(''));
-    expect(scheduleButton()).toBeDisabled();
+    expect(scheduleButton()).toHaveAttribute('aria-disabled', 'true');
     expect(scheduleButton()).toHaveTextContent('Schedule on Fri 20 Nov');
     expect(bar()).toHaveTextContent('Pick at least one person.');
     fireEvent.click(within(row('u-sara')).getByRole('checkbox'));
     fireEvent.click(within(row('u-ali')).getByRole('checkbox'));
-    expect(scheduleButton()).toBeEnabled();
+    expect(scheduleButton()).not.toHaveAttribute('aria-disabled');
     expect(scheduleButton()).toHaveTextContent('Schedule for 2 people on Fri 20 Nov');
     fireEvent.change(screen.getByLabelText(/^Message/), { target: { value: '  ' } });
-    expect(scheduleButton()).toBeDisabled();
+    expect(scheduleButton()).toHaveAttribute('aria-disabled', 'true');
     expect(bar()).toHaveTextContent('Write a message.');
     const reason = bar().querySelector('[data-send-reason]')!;
     expect(scheduleButton().getAttribute('aria-describedby')).toBe(reason.id);
@@ -200,6 +200,19 @@ describe('the action bar', () => {
     expect(await screen.findByText(/Scheduled for 2 people on 20 Nov 2026\./)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'See the history' })).toBeInTheDocument();
     expect(screen.getByText('0 picked')).toBeInTheDocument();
+    // Review fix: the button stays focusable (not natively disabled), so focus isn't lost and the reason is read out.
+    expect(scheduleButton()).not.toBeDisabled();
+    expect(scheduleButton()).toHaveAttribute('aria-disabled', 'true');
+    // Review fix: starting the next one clears the old result, so the reason shows again.
+    fireEvent.click(within(row('u-zara')).getByRole('checkbox'));
+    expect(screen.queryByText(/Scheduled for 2 people/)).not.toBeInTheDocument();
+  });
+
+  it('a press while blocked does nothing', async () => {
+    show();
+    await screen.findByRole('radiogroup', { name: 'Template' });
+    fireEvent.click(scheduleButton());
+    expect(api.schedule).not.toHaveBeenCalled();
   });
 
   it('1 person: "Schedule for 1 person on …"', async () => {

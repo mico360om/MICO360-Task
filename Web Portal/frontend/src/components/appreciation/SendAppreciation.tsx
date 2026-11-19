@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { apiClient } from '../../api/client';
@@ -90,17 +90,32 @@ export function SendTab({ today, onSent }: { today: string; onSent: () => void }
     }
   }, [templates.data, templateId]);
 
+  const justSent = useRef(false);
   const schedule = useMutation({
-    mutationFn: () => api.schedule({ ...content, recipientIds: [...picked.keys()], templateId: templateId || null, day }),
-    onSuccess: (r) => {
-      setDone(`Scheduled for ${peopleWord(r.ids.length)} on ${dayWords(day)}.`);
+    mutationFn: (d: string) => api.schedule({ ...content, recipientIds: [...picked.keys()], templateId: templateId || null, day: d }),
+    // The day that was sent (it may have been changed while the request was on its way).
+    onSuccess: (r, d) => {
+      setDone(`Scheduled for ${peopleWord(r.ids.length)} on ${dayWords(d)}.`);
       setProblem(null);
+      justSent.current = true; // the emptied list below is not "starting the next one"
       setPicked(new Map());
       void qc.invalidateQueries({ queryKey: ['appreciations'] });
       void qc.invalidateQueries({ queryKey: APPRECIATIONS_ME_KEY });
     },
     onError: (e) => setProblem(problemOf(e)),
   });
+
+  // Starting the next one (any change) clears the last result, so the reason for a greyed button shows again.
+  const pending = schedule.isPending;
+  useEffect(() => {
+    if (pending) return;
+    if (justSent.current) {
+      justSent.current = false;
+      return;
+    }
+    setDone(null);
+    setProblem(null);
+  }, [picked, templateId, content, day]);
 
   const entryOf = (p: ApiAppreciationPerson): Picked => ({ name: p.name, avatarUrl: p.avatarUrl, company: { name: p.companies[0]?.name ?? 'Your company', logoUrl: null } });
   const toggle = (p: ApiAppreciationPerson) =>
@@ -240,7 +255,7 @@ export function SendTab({ today, onSent }: { today: string; onSent: () => void }
                 <StepNumber n={2} />
                 Template
               </h2>
-              <Link to={{ search: '?tab=templates' }} className="text-sm font-semibold text-brand underline-offset-2 hover:underline">
+              <Link to={{ search: '?tab=templates' }} replace className="text-sm font-semibold text-brand underline-offset-2 hover:underline">
                 Manage templates
               </Link>
             </div>
@@ -301,7 +316,7 @@ export function SendTab({ today, onSent }: { today: string; onSent: () => void }
         </div>
 
         {wide ? (
-          <aside className="sticky top-[4.5rem] flex min-w-0 flex-col gap-2" aria-labelledby={`${id}-preview`}>
+          <aside className="sticky top-[4.5rem] flex max-h-[calc(100dvh-10.5rem)] min-w-0 flex-col gap-2 overflow-y-auto" tabIndex={0} aria-labelledby={`${id}-preview`}>
             <h2 id={`${id}-preview`} className="font-display text-base font-semibold text-ink">Preview</h2>
             {preview}
           </aside>
@@ -356,11 +371,13 @@ export function SendTab({ today, onSent }: { today: string; onSent: () => void }
           </div>
           <Button
             onClick={() => {
+              if (blocker) return;
               setDone(null);
-              schedule.mutate();
+              schedule.mutate(day);
             }}
             loading={schedule.isPending}
-            disabled={!!blocker}
+            // Not natively disabled: focus stays on it after a send, and its reason is read out when it is focused.
+            aria-disabled={!!blocker || undefined}
             aria-describedby={blocker ? `${id}-reason` : undefined}
             className={`w-full sm:w-auto ${TOUCH_TALL}`}
             data-schedule
