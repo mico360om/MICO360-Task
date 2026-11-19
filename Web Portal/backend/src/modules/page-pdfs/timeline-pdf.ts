@@ -148,7 +148,11 @@ export function buildTimelinePdf(
           const x1 = Math.max(x0 + 2, xOf(p.width, end > data.to ? data.to : end) + (p.width - labelW) / total);
           const fill = HEALTH_FILL[project.health];
           p.rect(x0, 11, x1 - x0, 12, '#FFFFFF', { radius: 3, stroke: fill, lineWidth: 0.8, ...(project.target ? {} : { dash: 2 }) });
-          p.rect(x0, 11, ((x1 - x0) * Math.min(100, Math.max(0, project.progress))) / 100, 12, fill, { radius: 3 });
+          // The share done along the whole bar (its start may be before the shown weeks), then the part in view.
+          const span = dayNo(end) + 1 - dayNo(project.start);
+          const doneTo = dayNo(project.start) + (span * Math.min(100, Math.max(0, project.progress))) / 100;
+          const xd = labelW + ((p.width - labelW) * Math.min(Math.max(doneTo - first, 0), total)) / total;
+          if (xd > x0) p.rect(x0, 11, Math.min(xd, x1) - x0, 12, fill, { radius: 3 });
         }
         // Late: the part from the target to today, hatched.
         if (project.health === 'late' && project.target && project.target < data.today && project.target <= data.to) {
