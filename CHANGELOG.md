@@ -14,6 +14,10 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Improvements
+- Ten more built-in appreciation templates: Safety Champion, Customer Hero, Problem Solver, Above and Beyond, Deadline Achiever, Leadership, Helping Hand, Quality Champion, Project Milestone and Work Anniversary. They appear after the first six in Admin → Appreciations → Templates; like the others they can be duplicated but not changed.
+- The Activity page now uses the full page width, like the other list pages, so each line and the calendar view have more room.
+
 ## [1.24.1] - 2026-11-18
 
 ### Improvements

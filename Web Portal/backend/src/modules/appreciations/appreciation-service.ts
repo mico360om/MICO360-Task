@@ -301,7 +301,7 @@ export function createAppreciationService(d: AppreciationDeps) {
     updatedAt: t.updatedAt.toISOString(),
   });
 
-  /** The six built-ins, added once (a second server starting at the same time adds nothing twice). */
+  /** The built-ins, each added once (new ones join on the next start-up) (a second server starting at the same time adds nothing twice). */
   async function ensureBuiltIns(): Promise<number> {
     const made = await prisma.appreciationTemplate.createMany({
       data: BUILT_IN_TEMPLATES.map(({ key, ...t }) => ({ builtInKey: key, ...t })),

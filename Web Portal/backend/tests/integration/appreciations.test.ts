@@ -249,7 +249,7 @@ describe('templates', () => {
     expect(await s.ensureBuiltIns()).toBe(0); // already there
     const list = await s.templates(w.people.amy);
     const builtIns = list.filter((t) => t.builtIn);
-    expect(builtIns.map((t) => t.name)).toEqual(['Outstanding Performance', 'Great Teamwork', 'Excellent Work', 'Innovation', 'Dedication', 'Employee of the Day']);
+    expect(builtIns.map((t) => t.name)).toEqual(['Outstanding Performance', 'Great Teamwork', 'Excellent Work', 'Innovation', 'Dedication', 'Employee of the Day', 'Safety Champion', 'Customer Hero', 'Problem Solver', 'Above and Beyond', 'Deadline Achiever', 'Leadership', 'Helping Hand', 'Quality Champion', 'Project Milestone', 'Work Anniversary']);
     const teamwork = builtIns[1]!;
     expect(await code(s.updateTemplate(w.people.amy, teamwork.id, { title: 'Changed' }))).toBe('409 BUILT_IN_TEMPLATE');
     expect(await code(s.archiveTemplate(w.people.amy, teamwork.id, true))).toBe('409 BUILT_IN_TEMPLATE');

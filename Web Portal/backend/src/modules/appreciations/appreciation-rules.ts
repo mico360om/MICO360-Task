@@ -29,7 +29,7 @@ export interface TemplateContent {
   animation: AppreciationAnimation;
 }
 
-/** The six built-in templates (they are never changed: a change is saved as a copy). */
+/** The built-in templates (they are never changed: a change is saved as a copy). */
 export const BUILT_IN_TEMPLATES: ReadonlyArray<TemplateContent & { key: string }> = [
   {
     key: 'outstanding',
@@ -83,6 +83,97 @@ export const BUILT_IN_TEMPLATES: ReadonlyArray<TemplateContent & { key: string }
     message: 'Congratulations {name}, you are the {company} Employee of the Day for {date}!',
     theme: 'ruby',
     icon: 'medal',
+    animation: 'confetti',
+  },
+  // Ten more (owner, 19 Nov): added once at start-up like the first six, after them in the list.
+  {
+    key: 'safety-champion',
+    name: 'Safety Champion',
+    title: 'Safety Champion',
+    message: 'Thank you, {name}, for keeping safety first. Your care helps everyone at {company} go home safe.',
+    theme: 'emerald',
+    icon: 'medal',
+    animation: 'shimmer',
+  },
+  {
+    key: 'customer-hero',
+    name: 'Customer Hero',
+    title: 'Customer Hero',
+    message: '{name}, our clients noticed! Thank you for the outstanding service you gave on behalf of {company}.',
+    theme: 'ocean',
+    icon: 'heart',
+    animation: 'confetti',
+  },
+  {
+    key: 'problem-solver',
+    name: 'Problem Solver',
+    title: 'Problem Solver',
+    message: 'Thank you, {name}, for finding a way through a tough problem. Your solution made a real difference.',
+    theme: 'violet',
+    icon: 'bulb',
+    animation: 'shimmer',
+  },
+  {
+    key: 'above-and-beyond',
+    name: 'Above and Beyond',
+    title: 'Above and Beyond',
+    message: '{name}, you went above and beyond. Thank you for the extra effort. {company} is proud of you.',
+    theme: 'ruby',
+    icon: 'star',
+    animation: 'confetti',
+  },
+  {
+    key: 'deadline-achiever',
+    name: 'Deadline Achiever',
+    title: 'Deadline Achiever',
+    message: 'Well done, {name}! You delivered on time and kept the work on track. Thank you.',
+    theme: 'amber',
+    icon: 'trophy',
+    animation: 'confetti',
+  },
+  {
+    key: 'leadership',
+    name: 'Leadership',
+    title: 'Leadership Award',
+    message: 'Thank you, {name}, for leading by example. Your guidance helps the whole team succeed.',
+    theme: 'slate',
+    icon: 'trophy',
+    animation: 'shimmer',
+  },
+  {
+    key: 'helping-hand',
+    name: 'Helping Hand',
+    title: 'Helping Hand',
+    message: 'Thank you, {name}, for always being ready to help a colleague. It means a lot to all of us.',
+    theme: 'ocean',
+    icon: 'team',
+    animation: 'none',
+  },
+  {
+    key: 'quality-champion',
+    name: 'Quality Champion',
+    title: 'Quality Champion',
+    message: '{name}, your attention to detail sets the standard at {company}. Thank you for getting it right.',
+    theme: 'emerald',
+    icon: 'star',
+    animation: 'shimmer',
+  },
+  {
+    key: 'project-milestone',
+    name: 'Project Milestone',
+    title: 'Project Milestone Reached',
+    message: 'Congratulations, {name}, on reaching an important project milestone. Great work, and thank you!',
+    theme: 'violet',
+    icon: 'medal',
+    animation: 'confetti',
+  },
+  {
+    key: 'work-anniversary',
+    name: 'Work Anniversary',
+    title: 'Happy Work Anniversary',
+    message: 'Happy work anniversary, {name}! Thank you for another year of great work with {company}.',
+    theme: 'amber',
+    icon: 'heart',
     animation: 'confetti',
   },
 ];

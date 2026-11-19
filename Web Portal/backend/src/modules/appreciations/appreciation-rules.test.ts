@@ -62,9 +62,9 @@ describe('status at the day’s edges', () => {
 });
 
 describe('templates and placeholders', () => {
-  it('six built-ins with unique keys', () => {
-    expect(BUILT_IN_TEMPLATES.map((t) => t.name)).toEqual(['Outstanding Performance', 'Great Teamwork', 'Excellent Work', 'Innovation', 'Dedication', 'Employee of the Day']);
-    expect(new Set(BUILT_IN_TEMPLATES.map((t) => t.key)).size).toBe(6);
+  it('sixteen built-ins with unique keys (owner, 19 Nov: 10 more)', () => {
+    expect(BUILT_IN_TEMPLATES.map((t) => t.name)).toEqual(['Outstanding Performance', 'Great Teamwork', 'Excellent Work', 'Innovation', 'Dedication', 'Employee of the Day', 'Safety Champion', 'Customer Hero', 'Problem Solver', 'Above and Beyond', 'Deadline Achiever', 'Leadership', 'Helping Hand', 'Quality Champion', 'Project Milestone', 'Work Anniversary']);
+    expect(new Set(BUILT_IN_TEMPLATES.map((t) => t.key)).size).toBe(16);
   });
   it('fills {name}, {company} and {date}, leaving other braces', () => {
     expect(fillPlaceholders('Well done {name} of {company} on {date} {other}', { name: 'Sara Khan', company: 'Contoso', day: '2026-11-18' })).toBe('Well done Sara Khan of Contoso on 18 Nov 2026 {other}');
