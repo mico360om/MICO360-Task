@@ -19,8 +19,9 @@ import type { StarterCourse, StarterLesson, StarterModule, StarterQuestion } fro
  * Raised whenever this content changes, so sites update the starter courses nobody edited (R1). 4 (1.23.33): the
  * pictures retaken with sample names only, and the words checked against the site of 1.23.32.
  * 5 (1.23.36): pictures for the steps that had none (where a real screen exists).
+ * 6 (1.24.5): "Change the columns" retaken on the compact Manage columns table (1.23.37).
  */
-export const STARTER_REVISION = 5;
+export const STARTER_REVISION = 6;
 
 /** 1.23.30: the one staff course, "MICO360 Tasks User Training" (its starter key). */
 export const USER_TRAINING_KEY = 'starter:user-training';
@@ -380,7 +381,7 @@ const board: StarterLesson[] = [
         title: 'Change the columns',
         body: '<p>Project managers and administrators see <strong>Manage columns</strong>. There you can rename, reorder, hide or add columns, and choose the status each column stands for. Click <strong>Done</strong> when you finish.</p>',
         image: 'board-columns.webp',
-        alt: 'The Columns panel: each column with its name, mapped status, a Visible switch and reorder arrows, and the Add a column box below.',
+        alt: 'The Columns table: each column’s name, its status, how many tasks it holds, a Visible switch and order arrows, and the Add a column box (a name and a status) below.',
       },
     ],
   },

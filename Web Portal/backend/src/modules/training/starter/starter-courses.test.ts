@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { extname, join, resolve } from 'node:path';
 import sharp from 'sharp';
 import { LEGACY_STARTER_KEYS, RETIRED_VIDEO_COURSES, SHORT_COURSE_MODULES, STARTER_COURSES, STARTER_REVISION, USER_TRAINING_KEY } from './starter-courses';
@@ -88,9 +89,9 @@ const plain = (lessons: readonly StarterLesson[], extra: string[] = []): string 
     .replace(/&amp;/g, '&');
 const courseText = (c: StarterCourse) => plain(c.lessons, [c.title, c.summary, ...(c.modules ?? []).map((m) => m.title)]);
 
-describe('starter content (revision 3, 4, 5): the two built-in courses', () => {
+describe('starter content (revision 3, 4, 5, 6): the two built-in courses', () => {
   it('revision 3: the combined staff course first (position -1), then the client guide; stable unique keys', () => {
-    expect(STARTER_REVISION).toBe(5);
+    expect(STARTER_REVISION).toBe(6);
     expect(USER_TRAINING_KEY).toBe('starter:user-training');
     expect(STARTER_COURSES.map((c) => c.key)).toEqual(KEYS);
     expect(training().position).toBe(-1);
@@ -564,6 +565,30 @@ describe('starter content revision 5: pictures for the steps that had none', () 
     expect(alt('admin-deactivate.webp')).toMatch(/Deactivate/);
     expect(alt('admin-logs.webp')).toMatch(/Audit Logs/);
     expect(alt('portal-notices.webp')).toMatch(/Change password/);
+  });
+});
+
+/**
+ * 1.24.5 (revision 6): "Change the columns" showed the Manage columns panel from before 1.23.37's compact table. Retaken
+ * on v1.24.4 at the old file's size (recipe: .superpowers/s5/starter/capture-starter.mjs, `webp-fit`); the revision
+ * brings it to sites whose built-in course nobody edited.
+ */
+describe('starter content revision 6: the Manage columns picture shows the compact table', () => {
+  const OLD_PANEL_SHA256 = '39589cf05dacab1b0854d9955a776aee5f070515e9b4474f4d4667a79bfb5170';
+
+  it('board-columns.webp is a new picture at the old one’s size (1280×597 WebP)', async () => {
+    const content = readFileSync(join(ASSETS, 'board-columns.webp'));
+    expect(createHash('sha256').update(content).digest('hex')).not.toBe(OLD_PANEL_SHA256);
+    const meta = await sharp(content).metadata();
+    expect([meta.format, meta.width, meta.height]).toEqual(['webp', 1280, 597]);
+  });
+
+  it('its description says what the table shows: name, status, how many tasks, Visible, order, and Add a column', () => {
+    const step = steps(training()).find((s) => s.image === 'board-columns.webp')!;
+    expect(step.title).toBe('Change the columns');
+    expect(step.alt).toMatch(/table/);
+    expect(step.alt).toMatch(/how many tasks/);
+    expect(step.alt).not.toMatch(/mapped status/);
   });
 });
 
