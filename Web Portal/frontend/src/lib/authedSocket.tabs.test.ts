@@ -267,13 +267,13 @@ describe('one live connection for all tabs', () => {
     a.openAuthedSocket();
     await vi.waitFor(() => expect(sockets).toHaveLength(1));
     sockets[0]!.up();
-    void locks.request('mico360-live:u1', { steal: true }, () => new Promise<void>(() => {}));
+    void locks.request('mico360-live:u1', { steal: true }, () => new Promise<void>(() => {})).catch(() => {}); // a later steal rejects it, as a browser would
     await vi.waitFor(() => expect(sockets[0]!.disconnect).toHaveBeenCalled());
   });
 
   it('a tab that is shown and gets no answer from a holder within seconds takes over', async () => {
     // Someone holds the lock but never answers (a frozen tab).
-    void locks.request('mico360-live:u1', {}, () => new Promise<void>(() => {}));
+    void locks.request('mico360-live:u1', {}, () => new Promise<void>(() => {})).catch(() => {});
     const [, b] = await twoTabs();
     b.openAuthedSocket();
     await new Promise((r) => setTimeout(r, 30));

@@ -288,6 +288,43 @@ describe('1.24.5: the KPI pages highlight only their own menu item', () => {
     expect(current()).toEqual([]);
   });
 
+  // 1.24.6 (owner, 24 Nov: "the page they came from"): the item you opened it from is lit (not aria-current: it isn't that page).
+  const lit = () => screen.queryAllByRole('link').filter((l) => /bg-brand-gradient/.test(l.className)).map((l) => l.getAttribute('data-rail-label') ?? l.textContent);
+  const at = (state: unknown) =>
+    render(
+      <MemoryRouter initialEntries={[{ pathname: '/performance/u-sara', state }]}>
+        <Sidebar isAdmin chatUnread={0} canLead />
+      </MemoryRouter>,
+    );
+
+  it('opened from Workload: Workload is lit, marked as where you came from', () => {
+    at({ kpiFrom: '/workload' });
+    expect(lit()).toEqual(['Workload']);
+    expect(current()).toEqual([]);
+    expect(screen.getByRole('link', { name: 'Workload' })).toHaveAttribute('data-came-from', 'true');
+  });
+
+  it('opened from a project’s members: Projects is lit', () => {
+    at({ kpiFrom: '/projects' });
+    expect(lit()).toEqual(['Projects']);
+  });
+
+  it('no or an unknown origin (a typed address, an old link): Workload, the team’s KPIs list', () => {
+    const { unmount } = at(null);
+    expect(lit()).toEqual(['Workload']);
+    unmount();
+    at({ kpiFrom: '/admin/users' });
+    expect(lit()).toEqual(['Workload']);
+  });
+
+  it('my own page and other pages light nothing extra', () => {
+    const { unmount } = renderSidebar(true, '/performance', 0, true);
+    expect(lit()).toEqual(['My performance']);
+    unmount();
+    renderSidebar(true, '/projects/p1', 0, true);
+    expect(lit()).toEqual(['Projects']);
+  });
+
   it('KPI targets (/admin/settings/kpis): System Settings alone', () => {
     renderSidebar(true, '/admin/settings/kpis', 0, true);
     expect(current()).toEqual(['System Settings']);

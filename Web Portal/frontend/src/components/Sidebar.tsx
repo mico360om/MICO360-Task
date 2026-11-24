@@ -12,6 +12,7 @@ import { useMediaQuery } from '../lib/useMediaQuery';
 import { useSetAppearance, useSidebarCollapsed } from '../lib/appearance';
 import { MenuDrawer } from './MenuDrawer';
 import { OVERDUE_CLASS } from '../lib/colour-classes';
+import { kpiMenuOrigin } from '../lib/kpi-from';
 
 interface NavItem {
   label: string;
@@ -836,6 +837,8 @@ function NavSubGroup({ item, rail, onNavigate }: { item: NavItem; rail: boolean;
 
 function NavGroup({ label, items, onNavigate, chatUnread = 0, trainingOverdue = 0, rail, first = false, flyout }: { label: string; items: NavItem[]; onNavigate?: () => void; chatUnread?: number; trainingOverdue?: number; rail: boolean; first?: boolean; /** 1.23.8: on the rail, one icon with a fly-out list (the Admin group). */ flyout?: ReactNode }) {
   const onRail = useOnRail();
+  const location = useLocation();
+  const cameFrom = kpiMenuOrigin(location.pathname, location.state);
   if (rail && flyout && onRail) {
     return (
       <>
@@ -887,7 +890,16 @@ function NavGroup({ label, items, onNavigate, chatUnread = 0, trainingOverdue = 
           ) : item.children?.length ? (
             <NavSubGroup key={item.to} item={item} rail={rail} onNavigate={onNavigate} />
           ) : (
-            <NavLink key={item.to} to={item.to} end={item.end} className={linkClass(rail)} onClick={onNavigate} data-rail-label={item.label} data-tour={item.tour}>
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              className={({ isActive }) => linkClass(rail)({ isActive: isActive || cameFrom === item.to })}
+              onClick={onNavigate}
+              data-rail-label={item.label}
+              data-tour={item.tour}
+              data-came-from={cameFrom === item.to ? 'true' : undefined}
+            >
               <NavIcon>{item.icon}</NavIcon>
               <span className={labelClass(rail)}>{item.label}</span>
             </NavLink>

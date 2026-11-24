@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { kpiLinkState } from '../lib/kpi-from';
 import { Link } from 'react-router-dom';
 import { FieldLabel } from './ui/Field';
 import { Avatar } from './ui/Avatar';
@@ -56,7 +57,7 @@ export function ProjectMembers({ members, addableUsers, canManage, onAdd, onRemo
                 </span>
               ) : null}
               {performanceHref ? (
-                <Link to={performanceHref(m.id)} aria-label={`${m.name}: performance`} className={`ml-auto flex-none rounded px-1.5 text-xs font-medium text-ink-2 hover:bg-ground hover:text-brand ${TOUCH_TALL}`}>
+                <Link to={performanceHref(m.id)} state={kpiLinkState('/projects')} aria-label={`${m.name}: performance`} className={`ml-auto flex-none rounded px-1.5 text-xs font-medium text-ink-2 hover:bg-ground hover:text-brand ${TOUCH_TALL}`}>
                   Performance
                 </Link>
               ) : null}

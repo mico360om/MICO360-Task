@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState, type MouseEvent } from 'react';
+import { kpiLinkState } from '../lib/kpi-from';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../stores/auth-store';
@@ -304,7 +305,7 @@ export function WorkloadPage() {
                             <span className="hidden flex-none sm:block"><Avatar name={p.name} src={p.avatarUrl} size="md" /></span>
                             <span className="min-w-0 max-sm:w-[7.5rem]">
                               {/* Project KPIs: the person's performance (yours, or as their manager or an administrator — the rows shown are those you may see). */}
-                              <Link to={p.id === myId ? '/performance' : `/performance/${encodeURIComponent(p.id)}`} title={`${p.name}: performance`} className="block truncate font-bold text-ink hover:text-brand hover:underline [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:leading-[2.75rem]">
+                              <Link to={p.id === myId ? '/performance' : `/performance/${encodeURIComponent(p.id)}`} state={p.id === myId ? undefined : kpiLinkState('/workload')} title={`${p.name}: performance`} className="block truncate font-bold text-ink hover:text-brand hover:underline [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:leading-[2.75rem]">
                                 <span data-person-name>{p.name}</span>
                                 <span className="sr-only">, open performance</span>
                               </Link>
