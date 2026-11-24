@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.24.6] - 2026-11-24
+
 ### Improvements
 - Another person's KPI page now highlights the menu item it was opened from: Workload, or Projects when opened from a project's members (Workload when that isn't known).
 
