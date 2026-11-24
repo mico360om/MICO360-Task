@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.24.7] - 2026-11-25
+
 ### Improvements
 - Opening a task from My Tasks no longer redraws every task in the list first (the Error log's "Slow to answer a click" on My Tasks).
 - The Error log says which protocol a slow request went over (HTTP/3, HTTP/2) and the one the request before it used. A long "waiting for a connection" now reads "getting a connection ready", or, when an HTTP/3 connection had stopped answering, says so.
