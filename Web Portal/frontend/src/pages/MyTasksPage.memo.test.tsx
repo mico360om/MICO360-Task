@@ -12,7 +12,7 @@ vi.mock('../components/bulk/select-boxes', async (orig) => {
   return {
     ...m,
     TaskSelectBox: (props: Parameters<typeof m.TaskSelectBox>[0]) => {
-      draws.set(props.task.id, (draws.get(props.task.id) ?? 0) + 1);
+      draws.set(props.task.key, (draws.get(props.task.key) ?? 0) + 1);
       return m.TaskSelectBox(props);
     },
   };
@@ -65,7 +65,7 @@ describe.each(['list', 'grid'] as const)('My Tasks (%s): opening a task doesn’
       </QueryClientProvider>,
     );
     await screen.findByText('Set out');
-    await waitFor(() => expect(draws.get('t4')).toBeGreaterThan(0));
+    await waitFor(() => expect(draws.get('OPS-4')).toBeGreaterThan(0));
     await new Promise((r) => setTimeout(r, 50));
     draws.clear();
     await userEvent.click(screen.getByText('Set out'));
