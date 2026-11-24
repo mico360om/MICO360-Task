@@ -251,6 +251,8 @@ export async function registerWebApp(app: FastifyInstance, opts: { root: string;
   });
 
   app.addHook('onSend', async (req, reply, payload) => {
+    // 1.24.7: ask browsers to forget the hosting's HTTP/3 advertisement (as app.ts does for every answer).
+    reply.header('Alt-Svc', 'clear');
     const type = String(reply.getHeader('content-type') ?? '');
     // 1.23.29: the uploads route's own page (a file link that no longer works) keeps its stricter policy.
     if (type.startsWith('text/html') && !req.url.startsWith('/uploads/')) applyPageHeaders(req, reply);

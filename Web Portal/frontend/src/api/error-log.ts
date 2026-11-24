@@ -23,6 +23,9 @@ export interface SlowTiming {
   connectMs?: number;
   waitMs?: number;
   downloadMs?: number;
+  /** 1.24.7: the protocol it went over ("h3", "h2", "http/1.1"), and the one the page's request before it used. */
+  protocol?: string;
+  priorProtocol?: string;
 }
 
 export interface ErrorGroup {

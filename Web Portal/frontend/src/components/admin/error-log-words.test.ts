@@ -80,7 +80,17 @@ describe('Error log words: where the time went, from the browser (1.23.14)', () 
     expect(slowTimingText(t({ serverMs: 10_300, dbMs: 9_800 }))).toBe('the server took 10.3 s · in the database 9.8 s');
     expect(slowTimingText(t({ waitMs: 400, downloadMs: 10_100 }))).toBe('downloading the answer took 10.1 s');
     expect(slowTimingText(t({ waitMs: 300, connectMs: 10_200 }))).toBe('connecting to the server took 10.2 s (a slow or changing connection)');
-    expect(slowTimingText(t({ waitMs: 300, queueMs: 10_200 }))).toBe('the browser waited 10.2 s before sending it (no free connection)');
+    // 1.24.7: the site answers over HTTP/2 and HTTP/3 — one connection for every request, so it was never "no free connection".
+    expect(slowTimingText(t({ waitMs: 300, queueMs: 10_200 }))).toBe('the browser waited 10.2 s before sending it (getting a connection ready)');
+  });
+
+  // 1.24.7: an HTTP/3 connection that stopped answering: a long wait, then the request went over HTTP/2.
+  const p = (over: Record<string, unknown>) => ({ ...t({ waitMs: 200, connectMs: 400, queueMs: 10_100 }), ...over });
+  it('the protocol: an HTTP/3 connection that stopped answering, said in plain words', () => {
+    expect(slowTimingText(p({ protocol: 'h2', priorProtocol: 'h3' }))).toBe('the browser waited 10.1 s before sending it (its HTTP/3 connection had stopped answering, so it went over HTTP/2 instead)');
+    expect(slowTimingText(p({ protocol: 'h3', priorProtocol: 'h3' }))).toBe('the browser waited 10.1 s before sending it (getting a connection ready)');
+    expect(partsText(p({ protocol: 'h2', priorProtocol: 'h3' }))).toBe('Waiting for a connection 10.1 s · connecting 0.4 s · waiting for the first byte 0.2 s · downloading 0.1 s · over HTTP/2 (the request before it: HTTP/3)');
+    expect(partsText(p({ protocol: 'http/1.1' }))).toMatch(/ · over HTTP\/1\.1$/);
   });
 
   it('the row: the last time’s whole wait first; the occurrence: each part', () => {

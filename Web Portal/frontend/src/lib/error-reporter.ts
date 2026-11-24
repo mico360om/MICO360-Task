@@ -39,6 +39,9 @@ export interface ErrorReport {
   connectMs?: number | null;
   waitMs?: number | null;
   downloadMs?: number | null;
+  /** 1.24.7, a slow request: the protocol it went over, and the one the page's request before it used. */
+  protocol?: string | null;
+  priorProtocol?: string | null;
 }
 
 /** What the reporter needs from the page (a test gives it a fake one). */
@@ -166,6 +169,11 @@ export function createErrorReporter(world: ReporterWorld) {
       // 1.23.14: and where its time went (all four, or none).
       const parts = [ms(r.queueMs), ms(r.connectMs), ms(r.waitMs), ms(r.downloadMs)];
       if (parts.every((v) => v !== null)) [out.queueMs, out.connectMs, out.waitMs, out.downloadMs] = parts;
+      const proto = (v: unknown) => (typeof v === 'string' && /^[a-z0-9./-]{1,16}$/i.test(v) ? v : null);
+      if (proto(r.protocol)) {
+        out.protocol = proto(r.protocol);
+        if (proto(r.priorProtocol)) out.priorProtocol = proto(r.priorProtocol);
+      }
       out.count = 1;
       out.version = world.version;
       const size = world.windowSize();

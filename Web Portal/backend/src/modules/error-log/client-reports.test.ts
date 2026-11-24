@@ -113,6 +113,15 @@ describe('parseClientBatch: 1.23.14 where the time went, and update restarts', (
     expect(load).not.toHaveProperty('waitMs');
   });
 
+  it('1.24.7: a slow request keeps its protocol and the one before it; nonsense or a protocol on another kind is dropped', () => {
+    expect(parseClientBatch({ reports: [{ ...slow, ...parts, protocol: 'h2', priorProtocol: 'h3' }] })[0]).toMatchObject({ protocol: 'h2', priorProtocol: 'h3' });
+    const [bad] = parseClientBatch({ reports: [{ ...slow, ...parts, protocol: 'h2 <b>', priorProtocol: 'h3' }] });
+    expect(bad).not.toHaveProperty('protocol');
+    expect(bad).not.toHaveProperty('priorProtocol');
+    const [load] = parseClientBatch({ reports: [{ kind: 'SLOW', detail: 'load', value: 9000, page: '/', protocol: 'h2' }] });
+    expect(load).not.toHaveProperty('protocol');
+  });
+
   it('an update restart: a request cut (api) or held up (slow, with its times); nothing else', () => {
     expect(parseClientBatch({ reports: [{ kind: 'UPDATE', detail: 'api', page: '/dashboard', resource: 'GET /api/v1/conversations' }] })[0]).toMatchObject({ kind: 'UPDATE', detail: 'api', resource: 'GET /api/v1/conversations' });
     expect(parseClientBatch({ reports: [{ kind: 'UPDATE', detail: 'slow', value: 29_750, page: '/board', resource: 'GET /api/v1/tasks/:id', serverMs: 35, ...parts }] })[0]).toMatchObject({ kind: 'UPDATE', detail: 'slow', value: 29_750, serverMs: 35, ...parts });

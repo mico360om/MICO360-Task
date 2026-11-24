@@ -142,7 +142,17 @@ function breakdownText(t: SlowTiming): string {
   }
   if (biggest === download) return `downloading the answer took ${secondsText(download)}`;
   if (biggest === connect) return `connecting to the server took ${secondsText(connect)} (a slow or changing connection)`;
-  return `the browser waited ${secondsText(queue)} before sending it (no free connection)`;
+  // 1.24.7: the site answers over HTTP/2 and HTTP/3 (one connection for every request): never "no free connection".
+  const fellBack = t.priorProtocol && /^h3/.test(t.priorProtocol) && t.protocol && !/^h3/.test(t.protocol);
+  if (fellBack) return `the browser waited ${secondsText(queue)} before sending it (its HTTP/3 connection had stopped answering, so it went over ${protocolName(t.protocol!)} instead)`;
+  return `the browser waited ${secondsText(queue)} before sending it (getting a connection ready)`;
+}
+
+/** "h3" → "HTTP/3", "h2" → "HTTP/2", "http/1.1" → "HTTP/1.1". */
+function protocolName(p: string): string {
+  if (/^h3/i.test(p)) return 'HTTP/3';
+  if (/^h2/i.test(p)) return 'HTTP/2';
+  return p.toUpperCase();
 }
 
 /** 1.23.14 — each part of a request's time, for its occurrence ("Waiting for a connection … · downloading …"); '' for older reports. */
@@ -153,6 +163,7 @@ export function partsText(t: SlowTiming | null | undefined): string {
     `connecting ${secondsText(t.connectMs ?? 0)}`,
     `waiting for the first byte ${secondsText(t.waitMs)}`,
     `downloading ${secondsText(t.downloadMs ?? 0)}`,
+    ...(t.protocol ? [`over ${protocolName(t.protocol)}${t.priorProtocol ? ` (the request before it: ${protocolName(t.priorProtocol)})` : ''}`] : []),
   ].join(' · ');
 }
 

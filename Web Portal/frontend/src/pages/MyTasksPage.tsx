@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 import { tasksApi, type ApiTask, type Priority } from '../api/tasks';
@@ -268,6 +268,13 @@ export function MyTasksPage() {
   const sortedIds = useMemo(() => shownRows.map((e) => e.task.id), [shownRows]);
   const shownRefs = useMemo<SelRef[]>(() => shownRows.map((e) => taskRef(e.task)), [shownRows]);
   const toggleSelect = (t: ApiTask, shift: boolean) => sel.toggle(taskRef(t), { shift, order: shownRefs });
+  // 1.24.7 (Error log: "Slow to answer a click", 1.1 s on My Tasks): opening a task changes the address, which
+  // drew every row again before the panel could show. The rows get callbacks that never change (the latest
+  // ones kept in a ref) and are memoised: only a row whose task, day or tick changed is drawn again.
+  const latest = useRef({ openTask, sortedIds, toggleSelect });
+  latest.current = { openTask, sortedIds, toggleSelect };
+  const openById = useCallback((id: string) => latest.current.openTask(id, latest.current.sortedIds), []);
+  const toggleTask = useCallback((t: ApiTask, shift: boolean) => latest.current.toggleSelect(t, shift), []);
   // "Select all N matching": every task the filters leave (the selection keeps the ones filtered out).
   const allState = sel.allState(sortedIds);
   const toggleSelectAll = () => (allState === 'all' ? sel.deselect(sortedIds) : sel.selectAll(shownRefs));
@@ -309,11 +316,11 @@ export function MyTasksPage() {
   const rowsView = (rows: Enriched[], label: string) =>
     view === 'grid' ? (
       <div className="grid gap-3 compact:gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {rows.map((e) => <MyTaskCard key={e.task.id} e={e} today={today} onOpen={() => openTask(e.task.id, sortedIds)} selected={sel.has(e.task.id)} onToggleSelect={(shift) => toggleSelect(e.task, shift)} />)}
+        {rows.map((e) => <MyTaskItem key={e.task.id} as="card" e={e} today={today} openById={openById} toggleTask={toggleTask} selected={sel.has(e.task.id)} />)}
       </div>
     ) : view === 'list' ? (
       <div className="card divide-y divide-line overflow-hidden">
-        {rows.map((e) => <MyTaskRow key={e.task.id} e={e} today={today} onOpen={() => openTask(e.task.id, sortedIds)} selected={sel.has(e.task.id)} onToggleSelect={(shift) => toggleSelect(e.task, shift)} />)}
+        {rows.map((e) => <MyTaskItem key={e.task.id} as="row" e={e} today={today} openById={openById} toggleTask={toggleTask} selected={sel.has(e.task.id)} />)}
       </div>
     ) : (
       // The page's filters, Sort menu, saved views and selection apply; a header click sets the sort.
@@ -569,6 +576,12 @@ const selectAllWords = (n: number, filtered: boolean) => `Select all ${n}${filte
 function StartsChip({ day, today }: { day: string; today: string }) {
   return <span className="inline-flex flex-none items-center rounded-md bg-info-soft px-1.5 py-0.5 text-[11px] font-semibold text-info">{startsText(day, today)}</span>;
 }
+
+/** 1.24.7: one task in Grid or List, drawn again only when its own props change (see openById above). */
+export const MyTaskItem = memo(function MyTaskItem({ as, e, today, openById, toggleTask, selected }: { as: 'card' | 'row'; e: Enriched; today: string; openById: (id: string) => void; toggleTask: (t: ApiTask, shift: boolean) => void; selected: boolean }) {
+  const Item = as === 'card' ? MyTaskCard : MyTaskRow;
+  return <Item e={e} today={today} onOpen={() => openById(e.task.id)} selected={selected} onToggleSelect={(shift) => toggleTask(e.task, shift)} />;
+});
 
 function MyTaskCard({ e, today, onOpen, selected, onToggleSelect }: { e: Enriched; today: string; onOpen: () => void; selected?: boolean; onToggleSelect?: (shift: boolean) => void }) {
   const t = e.task;

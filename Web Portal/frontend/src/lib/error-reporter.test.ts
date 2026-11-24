@@ -270,6 +270,17 @@ describe('the error reporter', () => {
     ]);
   });
 
+  it('1.24.7: a slow request sends its protocol and the one before it; nonsense is left out', async () => {
+    const r = createErrorReporter(w.world);
+    r.report({ kind: 'SLOW', detail: 'api', value: 10_800, resource: 'GET /api/v1/version', protocol: 'h2', priorProtocol: 'h3' });
+    r.report({ kind: 'SLOW', detail: 'api', value: 11_000, resource: 'GET /api/v1/projects', protocol: '<script>', priorProtocol: 'h3' });
+    await w.advance(10_000);
+    const [version, projects] = w.sent[0]!.body.reports as Record<string, unknown>[];
+    expect(version).toMatchObject({ protocol: 'h2', priorProtocol: 'h3' });
+    expect(projects).not.toHaveProperty('protocol');
+    expect(projects).not.toHaveProperty('priorProtocol');
+  });
+
   // 1.23.3: a slow request sends where its time went (the server's time and its time in the database).
   it('a slow request sends the server’s time and its time in the database; nonsense is left out', async () => {
     const r = createErrorReporter(w.world);

@@ -38,6 +38,12 @@ export interface ClientReport {
   connectMs?: number;
   waitMs?: number;
   downloadMs?: number;
+  /**
+   * 1.24.7, a slow request: the protocol it went over ("h3", "h2", "http/1.1") and the one the page's request
+   * before it used — an HTTP/3 connection that stopped answering shows as a long wait, then HTTP/2.
+   */
+  protocol?: string;
+  priorProtocol?: string;
 }
 
 /** Reports a batch may carry, and the most the CSP endpoint takes from one body. */
@@ -74,24 +80,32 @@ const reportSchema = z.object({
   connectMs: ms,
   waitMs: ms,
   downloadMs: ms,
+  protocol: z.string().max(64).optional().nullable(),
+  priorProtocol: z.string().max(64).optional().nullable(),
 });
 
-type Timed = { kind: string; detail: string; serverMs?: number | null; dbMs?: number | null; queueMs?: number | null; connectMs?: number | null; waitMs?: number | null; downloadMs?: number | null };
+type Timed = { kind: string; detail: string; serverMs?: number | null; dbMs?: number | null; queueMs?: number | null; connectMs?: number | null; waitMs?: number | null; downloadMs?: number | null; protocol?: string | null; priorProtocol?: string | null };
+type TimingFields = 'serverMs' | 'dbMs' | 'queueMs' | 'connectMs' | 'waitMs' | 'downloadMs' | 'protocol' | 'priorProtocol';
+const PROTOCOL = /^[a-z0-9./-]{1,16}$/i;
 
 /**
  * A slow request's server and database times (1.23.3): only with the server's, the database's never more.
  * 1.23.14: and where its time went (all four parts, or none) — also for one held up by an update restart.
  */
-function timingOf(r: Timed): Pick<ClientReport, 'serverMs' | 'dbMs' | 'queueMs' | 'connectMs' | 'waitMs' | 'downloadMs'> {
+function timingOf(r: Timed): Pick<ClientReport, TimingFields> {
   const timed = (r.kind === 'SLOW' && r.detail === 'api') || (r.kind === 'UPDATE' && r.detail === 'slow');
   if (!timed) return {};
-  const out: Pick<ClientReport, 'serverMs' | 'dbMs' | 'queueMs' | 'connectMs' | 'waitMs' | 'downloadMs'> = {};
+  const out: Pick<ClientReport, TimingFields> = {};
   if (r.serverMs != null) {
     out.serverMs = r.serverMs;
     out.dbMs = r.dbMs == null ? null : Math.min(r.dbMs, r.serverMs);
   }
   const { queueMs, connectMs, waitMs, downloadMs } = r;
   if (queueMs != null && connectMs != null && waitMs != null && downloadMs != null) Object.assign(out, { queueMs, connectMs, waitMs, downloadMs });
+  if (r.protocol && PROTOCOL.test(r.protocol)) {
+    out.protocol = r.protocol.toLowerCase();
+    if (r.priorProtocol && PROTOCOL.test(r.priorProtocol)) out.priorProtocol = r.priorProtocol.toLowerCase();
+  }
   return out;
 }
 

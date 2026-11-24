@@ -234,7 +234,8 @@ describe('POST /calendar.pdf', () => {
     const res = await a.inject({ method: 'POST', url: '/api/v1/calendar.pdf', headers: await as('mgr'), payload: { view: 'agenda', from: '2026-11-19', to: '2026-11-25', days: [{ day: '2026-11-20', items: [{ kind: 'task', id: 't1' }] }] } });
     const text = textOf(res.rawPayload);
     expect(text).toContain('Fri 20 Nov 2026 · 1 item');
-    expect(text).toContain('Contoso Tower · To do');
+    // Its status as of today: To do before its due day (20 Nov), Overdue after it.
+    expect(text).toMatch(/Contoso Tower · (To do|Overdue)/);
     expect((await a.inject({ method: 'POST', url: '/api/v1/calendar.pdf', headers: await as('outsider'), payload: { ...month, days: [] } })).statusCode).toBe(403);
     expect((await a.inject({ method: 'POST', url: '/api/v1/calendar.pdf', headers: await as('mgr'), payload: { view: 'year', from: '2026-11-01', to: '2026-11-02', days: [] } })).statusCode).toBe(400);
   });

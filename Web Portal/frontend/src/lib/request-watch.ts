@@ -45,6 +45,8 @@ export interface ResourceTimingLike {
   responseStart: number;
   responseEnd: number;
   serverTiming?: readonly { name: string; duration: number }[];
+  /** 1.24.7: the protocol it went over ("h3", "h2", "http/1.1"); '' or absent when the browser doesn't say. */
+  nextHopProtocol?: string;
 }
 
 /** Where a request's time went (ms); only its total when the browser gave no detail. */
@@ -138,6 +140,10 @@ const MATCH_MS = 100;
 export function createRequestWatch(world: RequestWatchWorld) {
   const pending: Pending[] = [];
   const entries: ResourceTimingLike[] = [];
+  /** 1.24.7: the protocols of the page's latest API requests (when each ended), for a slow one's "before it". */
+  const protocols: { end: number; protocol: string }[] = [];
+  const PROTOCOL = /^[a-z0-9./-]{1,16}$/i;
+  const protocolOf = (e: ResourceTimingLike | null) => (e && typeof e.nextHopProtocol === 'string' && PROTOCOL.test(e.nextHopProtocol) ? e.nextHopProtocol : null);
   let probing: RequestDone[] | null = null;
 
   const resourceOf = (info: RequestDone) => `${info.method.toUpperCase()} /api/v1${info.path}`;
@@ -173,6 +179,13 @@ export function createRequestWatch(world: RequestWatchWorld) {
       report.connectMs = b.connectMs;
       report.waitMs = b.waitMs;
       report.downloadMs = b.downloadMs;
+    }
+    const protocol = protocolOf(entry);
+    if (entry && protocol) {
+      report.protocol = protocol;
+      let prior: { end: number; protocol: string } | null = null;
+      for (const x of protocols) if (x.end <= entry.startTime && (!prior || x.end > prior.end)) prior = x;
+      if (prior) report.priorProtocol = prior.protocol;
     }
     world.report(report);
   }
@@ -285,6 +298,11 @@ export function createRequestWatch(world: RequestWatchWorld) {
           if (e.initiatorType !== 'fetch' && e.initiatorType !== 'xmlhttprequest') continue;
           if (!/\/api\/v1\//.test(e.name) || /\/client-errors(\?|$|\/)/.test(e.name)) continue;
           entries.push(e);
+          const proto = protocolOf(e);
+          if (proto) {
+            protocols.push({ end: e.responseEnd, protocol: proto });
+            if (protocols.length > 50) protocols.splice(0, protocols.length - 50);
+          }
           let match: Pending | null = null;
           for (const p of pending) {
             const d = e.startTime - (p.info.startedAt ?? NaN);

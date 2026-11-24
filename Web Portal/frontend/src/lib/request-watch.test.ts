@@ -157,6 +157,28 @@ describe('a slow request: timed by the browser’s Resource Timing, with where t
     expect(reports).toMatchObject([{ kind: 'SLOW', value: 10_100, queueMs: 9_700, waitMs: 400 }]);
   });
 
+  // 1.24.7: the protocol it went over, and the one the page's request before it used (an HTTP/3 connection that
+  // stopped answering shows as a long wait, then a new HTTP/2 connection).
+  it('says the protocol it went over and the one before it', () => {
+    const first = request({ path: '/version' });
+    const fe = entry(first.started.startedAt, { wait: 200 }, { name: `${BASE}/version?limit=50`, nextHopProtocol: 'h3' });
+    watch.requestDone(first.done(250));
+    watch.resources([fe]);
+    mono += 60_000;
+    const r = request();
+    watch.requestDone(r.done(10_800));
+    watch.resources([entry(r.started.startedAt, { queue: 10_100, connect: 400, wait: 200 }, { nextHopProtocol: 'h2' })]);
+    expect(reports).toMatchObject([{ kind: 'SLOW', queueMs: 10_100, protocol: 'h2', priorProtocol: 'h3' }]);
+  });
+
+  it('no protocol said (an older browser): neither field', () => {
+    const r = request();
+    watch.requestDone(r.done(10_500));
+    watch.resources([entry(r.started.startedAt, { wait: 10_400 })]);
+    expect(reports[0]).not.toHaveProperty('protocol');
+    expect(reports[0]).not.toHaveProperty('priorProtocol');
+  });
+
   it('another request to the same address is not mistaken for it (matched by its start)', () => {
     const r1 = request();
     watch.requestDone(r1.done(11_000));

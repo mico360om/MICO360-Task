@@ -229,6 +229,13 @@ describe('registerWebApp', () => {
     }
   });
 
+  it('1.24.7: pages and the build file ask browsers to forget the hosting’s HTTP/3 advertisement (Alt-Svc: clear)', async () => {
+    for (const url of ['/', '/login', '/board']) {
+      const res = await app.inject({ method: 'GET', url, headers: { host: 'localhost:4000' } });
+      expect(res.headers['alt-svc'], url).toBe('clear');
+    }
+  });
+
   it('a client page (its link carries a token) is never indexed and never sent as a referrer', async () => {
     const url = '/client/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-abcde';
     const res = await app.inject({ method: 'GET', url, headers: { host: 'localhost:4000' } });

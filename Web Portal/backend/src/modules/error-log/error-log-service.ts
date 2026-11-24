@@ -53,6 +53,9 @@ export interface SlowTiming {
   connectMs?: number;
   waitMs?: number;
   downloadMs?: number;
+  /** 1.24.7: the protocol it went over, and the one the page's request before it used (absent: not said). */
+  protocol?: string;
+  priorProtocol?: string;
 }
 
 /**
@@ -63,13 +66,16 @@ export interface SlowTiming {
  */
 const TIMING = /^Server-Timing: app;dur=(\d+(?:\.\d+)?)(?:, db;dur=(\d+(?:\.\d+)?))?$/m;
 const PARTS = /^Request-Timing: queue;dur=(\d+(?:\.\d+)?), connect;dur=(\d+(?:\.\d+)?), wait;dur=(\d+(?:\.\d+)?), download;dur=(\d+(?:\.\d+)?)$/m;
+/** 1.24.7: "Request-Protocol: h2; before=h3" (the part after the protocol may be missing). */
+const PROTOCOL_LINE = /^Request-Protocol: ([a-z0-9./-]{1,16})(?:; before=([a-z0-9./-]{1,16}))?$/m;
 const tenth = (ms: number) => Math.round(ms * 10) / 10;
-function timingText(r: Pick<ClientReport, 'serverMs' | 'dbMs' | 'queueMs' | 'connectMs' | 'waitMs' | 'downloadMs'>): string | null {
+function timingText(r: Pick<ClientReport, 'serverMs' | 'dbMs' | 'queueMs' | 'connectMs' | 'waitMs' | 'downloadMs' | 'protocol' | 'priorProtocol'>): string | null {
   const lines: string[] = [];
   if (r.serverMs != null) lines.push(`Server-Timing: app;dur=${tenth(r.serverMs)}${r.dbMs == null ? '' : `, db;dur=${tenth(r.dbMs)}`}`);
   if (r.queueMs != null && r.connectMs != null && r.waitMs != null && r.downloadMs != null) {
     lines.push(`Request-Timing: queue;dur=${tenth(r.queueMs)}, connect;dur=${tenth(r.connectMs)}, wait;dur=${tenth(r.waitMs)}, download;dur=${tenth(r.downloadMs)}`);
   }
+  if (r.protocol) lines.push(`Request-Protocol: ${r.protocol}${r.priorProtocol ? `; before=${r.priorProtocol}` : ''}`);
   return lines.length ? lines.join('\n') : null;
 }
 /** A request that can say where its time went: a slow one, or one held up by an update restart (1.23.14). */
@@ -82,6 +88,11 @@ function slowTiming(e: Pick<ErrorEventRow, 'kind' | 'value' | 'stack'> & { detai
   if (!m && !p) return null;
   const timing: SlowTiming = { totalMs: e.value, serverMs: m ? Number(m[1]) : null, dbMs: m && m[2] !== undefined ? Number(m[2]) : null };
   if (p) Object.assign(timing, { queueMs: Number(p[1]), connectMs: Number(p[2]), waitMs: Number(p[3]), downloadMs: Number(p[4]) });
+  const proto = PROTOCOL_LINE.exec(text);
+  if (proto) {
+    timing.protocol = proto[1]!;
+    if (proto[2]) timing.priorProtocol = proto[2];
+  }
   return timing;
 }
 /** 1.23.14: an update restart the server saw itself (its resource is the database's diagnosis, like a Server error's). */

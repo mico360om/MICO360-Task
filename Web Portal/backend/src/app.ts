@@ -615,6 +615,10 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
   // makes the browser block those <img> loads (net::ERR_BLOCKED_BY_RESPONSE.NotSameOrigin).
   // Relax CORP to cross-origin for just those public asset paths; the API stays same-origin.
   app.addHook('onSend', async (req, reply, payload) => {
+    // 1.24.7: the hosting's web server advertises HTTP/3 (Alt-Svc: h3, kept 30 days). On networks that drop it
+    // (UDP), browsers waited ~10 s for a dead HTTP/3 connection before falling back to HTTP/2 (the Error log's
+    // "waiting for a connection" on /version, /notifications/unread-count …). Every answer asks browsers to forget it.
+    reply.header('Alt-Svc', 'clear');
     if (req.url.startsWith('/uploads/') || req.url.startsWith('/email-assets/')) {
       reply.header('Cross-Origin-Resource-Policy', 'cross-origin');
     }

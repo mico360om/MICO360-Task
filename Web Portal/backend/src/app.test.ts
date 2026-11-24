@@ -83,6 +83,18 @@ describe('CORS for trusted origins (the Chrome extension, a separately hosted we
   });
 });
 
+// 1.24.7: the hosting advertises HTTP/3 (Alt-Svc: h3) for 30 days; on networks that drop it, browsers waited ~10 s
+// for a dead HTTP/3 connection before falling back. Every answer asks browsers to forget that advertisement.
+describe('HTTP/3 advertisement: cleared on every answer', () => {
+  it('API answers and errors say Alt-Svc: clear', async () => {
+    const app = await buildApp({ authService, tokenService });
+    for (const url of ['/api/v1/health', '/api/v1/tasks/mine', '/api/v1/no-such-route']) {
+      const res = await app.inject({ method: 'GET', url });
+      expect(res.headers['alt-svc'], url).toBe('clear');
+    }
+  });
+});
+
 describe('private data: caching and search engines', () => {
   it('API answers are never stored (no-store) and never indexed', async () => {
     const app = await buildApp({ authService, tokenService });

@@ -579,6 +579,15 @@ describe('a slow request: where the time went, from the browser (1.23.14)', () =
     expect(d!.events[0]).toMatchObject({ stack: null, timing: { totalMs: 10_550, serverMs: 48.2, dbMs: 12.5, ...parts } });
   });
 
+  it('1.24.7: an occurrence keeps the protocol it went over and the one before it', async () => {
+    service.acceptClientBatch({ body: batch(slow({ ...parts, queueMs: 10_100, protocol: 'h2', priorProtocol: 'h3' })), ip: '1', userAgent: CHROME, userId: 'u1' });
+    await service.settled();
+    const [row] = (await service.list({ kind: 'slow', range: '30d', q: null, status: 'open', before: null })).groups;
+    expect(row!.timing).toMatchObject({ queueMs: 10_100, protocol: 'h2', priorProtocol: 'h3' });
+    const d = await service.detail(row!.id);
+    expect(d!.events[0]!.timing).toMatchObject({ protocol: 'h2', priorProtocol: 'h3' });
+  });
+
   it('the parts without the server’s time (an answer from the hosting’s front door): the server’s time unknown', async () => {
     service.acceptClientBatch({ body: batch(slow(parts)), ip: '1', userAgent: CHROME, userId: 'u1' });
     await service.settled();
