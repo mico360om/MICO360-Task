@@ -26,12 +26,12 @@ export interface ProviderPreset {
 }
 
 /**
- * MICO360 Connect's AI platform, as its API guide describes it for Connect 2.6.28: https only on port
+ * MICO360 Connect's AI platform, as its API guide describes it for Connect 2.6.28 – 2.6.30: https only on port
  * 5310 (plain http has answered nothing since 2.6.17), the OpenAI-compatible API under /v1. Reading
  * pictures (scanned files) is its Vision capability and meaning search its Embedding capability.
  */
 export const MICO360_AI_HELP =
-  'Uses the AI API of MICO360 Connect 2.6.28, as its API guide describes: https on port 5310, under /v1. In MICO360 Connect, allow the key Chat — and Ocr to read whole scanned files (every page), Vision for the picture reader, Embedding for meaning search.';
+  'Uses the AI API of MICO360 Connect 2.6.28 – 2.6.30, as its API guide describes: https on port 5310, under /v1. In MICO360 Connect, allow the key Chat — and Ocr to read whole scanned files (every page), Vision for the picture reader, Embedding for meaning search.';
 
 export const PROVIDER_PRESETS: ProviderPreset[] = [
   { id: 'openai', label: 'OpenAI', name: 'OpenAI', kind: 'openai', baseUrl: 'https://api.openai.com/v1', needsKey: true, keyUrl: 'https://platform.openai.com/api-keys' },

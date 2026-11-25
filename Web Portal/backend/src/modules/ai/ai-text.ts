@@ -13,7 +13,11 @@ export function cutChars(text: string, max: number): string {
   return text.slice(0, Math.max(0, end));
 }
 
-/** Any half of a pair standing alone (from an earlier cut, or stored so) becomes "�". */
+/**
+ * Any half of a pair standing alone (from an earlier cut, or stored so) becomes "�". NUL characters (U+0000 —
+ * e.g. from text read out of a file) are taken out: MICO360 Connect refuses a request carrying one (400, from
+ * 2.6.30; before, the request failed later).
+ */
 export function wellFormed(text: string): string {
-  return text.replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '�');
+  return text.replace(/\u0000/g, '').replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '�');
 }
