@@ -11,6 +11,7 @@ import { reportsApi } from '../api/reports';
 import { tasksApi, type ApiTask } from '../api/tasks';
 import { activityApi, type ApiActivity } from '../api/activity';
 import { useAuthStore } from '../stores/auth-store';
+import { greetingName } from '../lib/own-user';
 import { StatTile } from '../components/StatTile';
 import { BarChart } from '../components/BarChart';
 import { Reveal } from '../components/ui/Reveal';
@@ -423,7 +424,7 @@ export function DashboardPage() {
           <div className="min-w-0">
             <div className="text-[11px] font-semibold uppercase tracking-wider ap-ink-90">{today}</div>
             <h1 className="font-display text-2xl font-extrabold tracking-tightish sm:text-[1.75rem]">
-              {firstDay ? 'Welcome' : 'Welcome back'}, <bdi>{user?.username ?? 'there'}</bdi>.
+              {firstDay ? 'Welcome' : 'Welcome back'}, <bdi>{greetingName(user)}</bdi>.
             </h1>
             <p className="mt-0.5 hidden text-sm sm:block">
               {firstDay

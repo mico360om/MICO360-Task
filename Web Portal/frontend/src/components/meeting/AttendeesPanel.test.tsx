@@ -54,6 +54,22 @@ describe('People: one compact row each', () => {
     expect(sami.querySelectorAll(':scope > div').length).toBeLessThanOrEqual(1);
   });
 
+  it('1.24.8: the options stay on the first line; only the badges wrap under the name when narrow', () => {
+    renderPanel([person({ role: 'OPTIONAL' })], { status: 'IN_PROGRESS' });
+    const row = rowOf('Aisha Khan');
+    const menu = within(row).getByRole('button', { name: 'Options for Aisha Khan' });
+    const details = within(row).getByText('Accepted').closest('[data-attendee-details]')!;
+    expect(details).not.toBeNull();
+    expect(details).toContainElement(within(row).getByRole('button', { name: /Attendance for Aisha Khan/ }));
+    expect(details).not.toContainElement(menu);
+    expect(details.className).toMatch(/flex-1/);
+    expect(details.className).toMatch(/min-w-0/);
+    // The options sit beside the details, never pushed onto a line of their own.
+    const actions = menu.closest('[data-attendee-actions]')!;
+    expect(actions.parentElement).toBe(row);
+    expect(actions.className).toMatch(/shrink-0/);
+  });
+
   it('with someone Optional, each person says Required or Optional', () => {
     renderPanel([person({}), person({ id: 'a2', userId: 'u2', role: 'OPTIONAL', response: 'TENTATIVE' })]);
     expect(rowOf('Aisha Khan')).toHaveTextContent('Required');

@@ -14,6 +14,10 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+### Bug fixes
+- The Dashboard greets people by their first name ("Welcome back, Bilal") instead of their username.
+- On a meeting page, each attendee's options (⋯ and Remove) stay on the first line beside their name; only the badges and attendance wrap underneath when the panel is narrow.
+
 ## [1.24.7] - 2026-11-25
 
 ### Improvements

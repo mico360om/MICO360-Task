@@ -18,6 +18,12 @@ export function ownName(user: Pick<AuthUser, 'username' | 'firstName' | 'lastNam
   return [user.firstName, user.lastName].filter(Boolean).join(' ').trim() || user.username;
 }
 
+/** 1.24.8: the Dashboard greets them by first name ("Welcome back, Bilal"), else the username. */
+export function greetingName(user: Pick<AuthUser, 'username' | 'firstName' | 'lastName'> | null | undefined): string {
+  if (!user) return 'there';
+  return user.firstName?.trim() || user.username || 'there';
+}
+
 /** Take these newer details of the signed-in person (only theirs), keeping the rest and the session. */
 export function updateOwnUser(patch: Partial<AuthUser> & { id: string }): void {
   const { user, setUser } = useAuthStore.getState();

@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore } from '../stores/auth-store';
-import { ME_KEY, ownName, updateOwnUser, useOwnUserRefresh } from './own-user';
+import { ME_KEY, greetingName, ownName, updateOwnUser, useOwnUserRefresh } from './own-user';
 
 // The header's face (11 Nov): the signed-in person's own name and current photo — refreshed on every
 // load (GET /users/me) and the moment they change their photo, not only when they sign in.
@@ -72,5 +72,18 @@ describe('useOwnUserRefresh', () => {
     renderHook(() => useOwnUserRefresh(), { wrapper });
     await new Promise((r) => setTimeout(r, 50));
     expect(useAuthStore.getState().user).toMatchObject({ firstName: 'Aisha', avatarUrl: '/uploads/mine.png' });
+  });
+});
+
+describe('greetingName (1.24.8)', () => {
+  it('greets by first name, not the username', () => {
+    expect(greetingName({ username: 'bilal', firstName: 'Bilal', lastName: 'Khan' })).toBe('Bilal');
+  });
+  it('falls back to the username when no first name is known yet', () => {
+    expect(greetingName({ username: 'bilal', firstName: '  ', lastName: 'Khan' })).toBe('bilal');
+    expect(greetingName({ username: 'bilal' })).toBe('bilal');
+  });
+  it("says 'there' when nobody is signed in", () => {
+    expect(greetingName(null)).toBe('there');
   });
 });

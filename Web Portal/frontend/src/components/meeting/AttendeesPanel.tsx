@@ -203,6 +203,8 @@ export function AttendeesPanel({
               return (
                 <li key={a.id} className="flex flex-wrap items-center gap-x-2 gap-y-1 py-1.5">
                   <Avatar size="sm" name={name} src={a.userId ? directory.find((d) => d.id === a.userId)?.avatarUrl : null} />
+                  {/* 1.24.8: name, badges and attendance wrap inside this block, so the options never drop onto a line of their own. */}
+                  <div data-attendee-details className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
                   <span className="min-w-0 flex-[1_1_7rem]">
                     <span title={name} className="block truncate text-sm font-medium text-ink"><bdi>{name}</bdi></span>
                     {a.externalEmail ? <span title={a.externalEmail} className="block truncate text-xs text-ink-3" dir="ltr">{a.externalEmail}</span> : null}
@@ -242,7 +244,8 @@ export function AttendeesPanel({
                       <span className="text-xs text-ink-3">Attendance: {ATTENDANCE_LABELS[a.attendance]}</span>
                     )
                   ) : null}
-                  <span className="ms-auto flex items-center">
+                  </div>
+                  <span data-attendee-actions className="ms-auto flex shrink-0 items-center">
                     {canEdit ? (
                       <ActionMenu
                         label={`Options for ${name}`}
