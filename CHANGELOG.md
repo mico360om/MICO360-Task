@@ -14,6 +14,8 @@ version (see [docs/RELEASES.md](docs/RELEASES.md)). Security entries are shown t
 
 ## [Unreleased]
 
+## [1.24.9] - 2026-11-26
+
 ### Improvements
 - Checked against MICO360 Connect's AI API guide for 2.6.30: text sent to MICO360 AI no longer carries NUL characters (sometimes found in text read out of files), which Connect 2.6.30 refuses. Nothing else in the guide changes what Tasks sends; the AI Management help now says it works with Connect 2.6.28 – 2.6.30.
 
